@@ -2579,8 +2579,8 @@ app.get('/estadisticas-carga', async (req, res) => {
     const query = `
       SELECT 
         p.id_personal,
-        p.nombre,              -- CAMBIO 1: Usamos 'nombre'
-        p.funcion as area,     -- CAMBIO 2: Usamos 'funcion' como area
+        p.nombre,              -- ✅ CORRECTO (Según tu imagen)
+        p.funcion as area,     -- ✅ CORRECTO (Usamos 'funcion' como area)
         EXTRACT(MONTH FROM c.fecha) as mes_num,
         TO_CHAR(c.fecha, 'Month') as mes_nombre,
         EXTRACT(WEEK FROM c.fecha) as semana_num,
@@ -2591,13 +2591,14 @@ app.get('/estadisticas-carga', async (req, res) => {
       FROM personal p
       LEFT JOIN citas c ON p.id_personal = c.id_personal
       WHERE c.fecha >= CURRENT_DATE 
-      AND p.rol != 'Admin' 
-      GROUP BY p.id_personal, p.nombre, p.funcion, mes_num, mes_nombre, semana_num, c.tipo_cita -- Agrupamos por las columnas reales
-      ORDER BY p.nombre, mes_num, semana_num; -- Ordenamos por nombre real
+      AND p.funcion != 'Admin'  -- 🛑 AQUÍ ESTABA EL ERROR (Cambiamos 'rol' por 'funcion')
+      GROUP BY p.id_personal, p.nombre, p.funcion, mes_num, mes_nombre, semana_num, c.tipo_cita -- ✅ Agrupamos por funcion
+      ORDER BY p.nombre, mes_num, semana_num;
     `;
     
     const result = await pool.query(query);
     
+    // --- PROCESAMIENTO DE DATOS ---
     const cargaTrabajo = {};
 
     result.rows.forEach(row => {
@@ -2606,12 +2607,13 @@ app.get('/estadisticas-carga', async (req, res) => {
       if (!cargaTrabajo[id]) {
         cargaTrabajo[id] = {
           id: id,
-          nombre: row.nombre, // Usamos la columna correcta
-          area: row.area,     // Usamos el alias que definimos arriba
+          nombre: row.nombre, 
+          area: row.area,     // Esto tomará el valor de 'funcion' gracias al alias
           meses: {}
         };
       }
 
+      // Normalizar nombre del mes
       const mesKey = row.mes_num; 
 
       if (!cargaTrabajo[id].meses[mesKey]) {
@@ -2623,6 +2625,7 @@ app.get('/estadisticas-carga', async (req, res) => {
         };
       }
 
+      // Sumar contadores
       const cantidad = parseInt(row.total);
       if (row.tipo_cita === 'P' || row.tipo_cita === 'V') {
         cargaTrabajo[id].meses[mesKey].primera_vez += cantidad;
@@ -2630,6 +2633,7 @@ app.get('/estadisticas-carga', async (req, res) => {
         cargaTrabajo[id].meses[mesKey].tratamiento += cantidad;
       }
 
+      // Lógica de Semanas
       const semKey = row.semana_num;
       if (!cargaTrabajo[id].meses[mesKey].semanas[semKey]) {
         cargaTrabajo[id].meses[mesKey].semanas[semKey] = {
@@ -2669,3 +2673,4 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+

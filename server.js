@@ -481,79 +481,75 @@ app.post("/generate-report", async (req, res) => {
 // -----------------------------------------------------------
 // --- RUTA: REGISTRAR PERSONAL Y HORARIOS (CON TRANSACCIÓN) ---
 // -----------------------------------------------------------
-// Asegúrate de tener instalado bcrypt: npm install bcrypt
 app.post("/personal2", async (req, res) => {
   console.log("🔹 Datos recibidos:", req.body);
 
   const { nombre, usuario, contra, dias_laboral, funcion } = req.body;
+  // dias_laboral llega como string: "Lun,Mar,Mie"
 
   const client = await pool.connect();
 
   try {
-    // 1. INICIAR TRANSACCIÓN
+    // 1. INICIAR TRANSACCIÓN (Todo o nada)
     await client.query('BEGIN');
 
     // ---------------------------------------------------------
-    // PASO A: Cifrar contraseña e Insertar Personal
+    // PASO A: Insertar el Empleado (Sin los días)
     // ---------------------------------------------------------
-    
-    // Generamos el hash de la contraseña antes de guardarla
-    const saltRounds = 10;
-    const contraCifrada = await bcrypt.hash(contra, saltRounds);
-
+    // NOTA: Verifica si en tu base de datos las columnas son 'contra' y 'funcion' 
+    // o si son 'password' y 'rol'. Aquí uso lo que mandas desde Flutter.
     const sqlPersonal = `
-      INSERT INTO personal (nombre, usuario, contra, especialidad)
+      INSERT INTO personal (nombre, usuario, contra, funcion)
       VALUES ($1, $2, $3, $4)
       RETURNING id_personal;
     `;
     
-    // Usamos 'especialidad' en lugar de 'funcion' si así se llama en tu tabla
-    const resPersonal = await client.query(sqlPersonal, [
-        nombre.trim(), 
-        usuario.trim(), 
-        contraCifrada, // <-- Guardamos la versión cifrada
-        funcion
-    ]);
-    
+    const resPersonal = await client.query(sqlPersonal, [nombre, usuario, contra, funcion]);
     const nuevoId = resPersonal.rows[0].id_personal;
     console.log("✅ Personal creado con ID:", nuevoId);
 
     // ---------------------------------------------------------
-    // PASO B: Procesar horarios (Se mantiene tu lógica)
+    // PASO B: Procesar los días y guardar en horarios_personal
     // ---------------------------------------------------------
     
+    // Mapa para convertir texto a número (Según tu imagen: Lun=1, Mar=2...)
     const mapaDias = {
       "Lun": 1, "Mar": 2, "Mie": 3, "Jue": 4, "Vie": 5, "Sab": 6, "Dom": 7
     };
 
-    if (dias_laboral) {
-      const listaDias = dias_laboral.split(',');
+    // Convertimos "Lun,Mar" en un array ["Lun", "Mar"]
+    const listaDias = dias_laboral.split(',');
 
-      for (const diaTexto of listaDias) {
-        const diaNumero = mapaDias[diaTexto.trim()];
+    for (const diaTexto of listaDias) {
+      const diaNumero = mapaDias[diaTexto.trim()]; // Obtenemos el número (ej. 1)
 
-        if (diaNumero) {
-          const sqlHorario = `
-            INSERT INTO horarios_personal (id_personal, dia_semana, hora_inicio_laboral, hora_fin_laboral)
-            VALUES ($1, $2, '08:00:00', '15:00:00');
-          `;
-          await client.query(sqlHorario, [nuevoId, diaNumero]);
-        }
+      if (diaNumero) {
+        // Insertamos en la tabla de horarios
+        // OJO: Estoy poniendo un horario default de 08:00 a 15:00 como en tu imagen.
+        // Si quieres que sea dinámico, tendrías que pedir la hora en Flutter.
+        const sqlHorario = `
+          INSERT INTO horarios_personal (id_personal, dia_semana, hora_inicio_laboral, hora_fin_laboral)
+          VALUES ($1, $2, '08:00:00', '15:00:00');
+        `;
+        await client.query(sqlHorario, [nuevoId, diaNumero]);
       }
     }
 
     // 2. CONFIRMAR CAMBIOS
     await client.query('COMMIT');
+    
     res.status(201).json({ message: "Personal y horarios registrados correctamente" });
 
   } catch (error) {
-    // 3. DESHACER CAMBIOS EN CASO DE ERROR
+    // 3. SI ALGO FALLA, DESHACER TODO (ROLLBACK)
     await client.query('ROLLBACK');
     console.error("🔥 Error en transacción:", error);
     
-    if (error.code === '23505') {
+    // Verificamos si es error de usuario duplicado
+    if (error.code === '23505') { // Código PostgreSQL para unique violation
        return res.status(400).json({ message: "El usuario ya existe." });
     }
+
     res.status(500).json({ message: "Error interno al guardar datos." });
   } finally {
     client.release();
@@ -2720,6 +2716,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

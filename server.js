@@ -2576,23 +2576,23 @@ const sqlPacientes = `
 // --- NUEVO ENDPOINT: CARGA DE TRABAJO POR TERAPEUTA ---
 app.get('/estadisticas-carga', async (req, res) => {
   try {
-    const query = `
+const query = `
       SELECT 
         p.id_personal,
-        p.nombre,              -- ✅ CORRECTO (Según tu imagen)
-        p.funcion as area,     -- ✅ CORRECTO (Usamos 'funcion' como area)
+        p.nombre,
+        p.funcion as area,
         EXTRACT(MONTH FROM c.fecha) as mes_num,
-        TO_CHAR(c.fecha, 'Month') as mes_nombre,
+        TO_CHAR(c.fecha, 'Month') as mes_nombre, -- Ojo: Esto devuelve 'January  ', 'February ' (con espacios)
         EXTRACT(WEEK FROM c.fecha) as semana_num,
         MIN(c.fecha) as inicio_semana, 
         MAX(c.fecha) as fin_semana,    
         c.tipo_cita,
         COUNT(*) as total
       FROM personal p
-      LEFT JOIN citas c ON p.id_personal = c.id_personal
-      WHERE c.fecha >= CURRENT_DATE 
-      AND p.funcion != 'Admin'  -- 🛑 AQUÍ ESTABA EL ERROR (Cambiamos 'rol' por 'funcion')
-      GROUP BY p.id_personal, p.nombre, p.funcion, mes_num, mes_nombre, semana_num, c.tipo_cita -- ✅ Agrupamos por funcion
+      -- 👇 EL CAMBIO MÁGICO ESTÁ AQUÍ ABAJO 👇
+      LEFT JOIN citas c ON p.id_personal = c.id_personal AND c.fecha >= DATE_TRUNC('year', CURRENT_DATE) 
+      WHERE p.funcion != 'Admin' 
+      GROUP BY p.id_personal, p.nombre, p.funcion, mes_num, mes_nombre, semana_num, c.tipo_cita
       ORDER BY p.nombre, mes_num, semana_num;
     `;
     
@@ -2673,4 +2673,5 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 

@@ -2576,7 +2576,7 @@ const sqlPacientes = `
 // --- NUEVO ENDPOINT: CARGA DE TRABAJO POR TERAPEUTA (CORREGIDO) ---
 app.get('/estadisticas-carga', async (req, res) => {
   try {
-    const query = `
+const query = `
       SELECT 
         p.id_personal,
         p.nombre,
@@ -2590,7 +2590,16 @@ app.get('/estadisticas-carga', async (req, res) => {
         COUNT(*) as total
       FROM personal p
       LEFT JOIN citas c ON p.id_personal = c.id_personal AND c.fecha >= DATE_TRUNC('year', CURRENT_DATE) 
-      WHERE p.funcion IN ('Psicologia', 'Terapeuta Autismo', 'Terapeuta Lenguaje', 'Terapeuta Fisico', 'Médico')
+      
+      -- 👇 AQUÍ AGREGAMOS LAS VARIACIONES CON Y SIN ACENTO 👇
+      WHERE p.funcion IN (
+          'Psicologia', 'Psicología',        -- <--- Las dos formas
+          'Terapeuta Autismo', 
+          'Terapeuta Lenguaje', 
+          'Terapeuta Fisico', 'Terapeuta Físico', -- <--- Por si acaso también aquí
+          'Médico', 'Medico'                 -- <--- Y aquí también
+      )
+      
       GROUP BY p.id_personal, p.nombre, p.funcion, mes_num, mes_nombre, semana_num, c.tipo_cita
       ORDER BY p.nombre, mes_num, semana_num;
     `;
@@ -2675,6 +2684,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

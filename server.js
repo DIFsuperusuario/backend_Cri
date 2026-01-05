@@ -2580,7 +2580,16 @@ const query = `
       SELECT 
         p.id_personal,
         p.nombre,
-        p.funcion as area,
+        
+        -- 👇 AQUÍ ESTÁ LA MAGIA DE LA UNIFICACIÓN 👇
+        CASE 
+            WHEN p.funcion IN ('Psicologia', 'Psicología') THEN 'Psicología'
+            WHEN p.funcion IN ('Médico', 'Medico') THEN 'Médico'
+            WHEN p.funcion IN ('Terapeuta Fisico', 'Terapeuta Físico') THEN 'Terapeuta Físico'
+            ELSE p.funcion 
+        END as area, 
+        -- 👆 Esto convierte todo al nombre bonito con acento 👆
+
         EXTRACT(MONTH FROM c.fecha) as mes_num,
         TO_CHAR(c.fecha, 'Month') as mes_nombre,
         EXTRACT(WEEK FROM c.fecha) as semana_num,
@@ -2591,17 +2600,17 @@ const query = `
       FROM personal p
       LEFT JOIN citas c ON p.id_personal = c.id_personal AND c.fecha >= DATE_TRUNC('year', CURRENT_DATE) 
       
-      -- 👇 AQUÍ AGREGAMOS LAS VARIACIONES CON Y SIN ACENTO 👇
+      -- Mantenemos el filtro amplio para encontrar a todos (feos y bonitos)
       WHERE p.funcion IN (
-          'Psicologia', 'Psicología',        -- <--- Las dos formas
+          'Psicologia', 'Psicología', 
           'Terapeuta Autismo', 
           'Terapeuta Lenguaje', 
-          'Terapeuta Fisico', 'Terapeuta Físico', -- <--- Por si acaso también aquí
-          'Médico', 'Medico'                 -- <--- Y aquí también
+          'Terapeuta Fisico', 'Terapeuta Físico',
+          'Médico', 'Medico'
       )
       
       GROUP BY p.id_personal, p.nombre, p.funcion, mes_num, mes_nombre, semana_num, c.tipo_cita
-      ORDER BY p.nombre, mes_num, semana_num;
+      ORDER BY area, p.nombre, mes_num, semana_num; -- Ordenamos por el área unificada
     `;
     
     const result = await pool.query(query);
@@ -2684,6 +2693,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

@@ -482,8 +482,6 @@ app.post("/generate-report", async (req, res) => {
 // --- RUTA: REGISTRAR PERSONAL Y HORARIOS (CON TRANSACCIÓN) ---
 // -----------------------------------------------------------
 // Asegúrate de tener instalado bcrypt: npm install bcrypt
-const bcrypt = require("bcrypt");
-
 app.post("/personal2", async (req, res) => {
   console.log("🔹 Datos recibidos:", req.body);
 
@@ -2722,6 +2720,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

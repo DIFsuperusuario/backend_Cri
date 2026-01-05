@@ -601,20 +601,35 @@ app.post("/mandar-a-recepcion", async (req, res) => {
 // -----------------------------------------------------------
 // --- 2. RUTA: RECEPCIÓN VER LISTA POR ASIGNAR (Solo hoy) ---
 // -----------------------------------------------------------
-app.get("/citas-entrelazadas-hoy", async (req, res) => {
+// --- MODIFICACIÓN: VER TANTO PENDIENTES (P) COMO VALORADAS (V) ---
+app.get('/citas-entrelazadas-hoy', async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT c.*, p.nombre, p.motivo_estudio, 
-             per.nombre as nombre_medico, per.funcion as area_medico
+    const query = `
+      SELECT 
+        c.id_cita, 
+        c.hora_inicio, 
+        c.id_paciente, 
+        c.estatus,
+        c.tipo_cita,  -- Asegúrate de traer esta columna para saber cuál es cuál
+        pac.nombre_completo as nombre,
+        p.nombre as nombre_medico
       FROM citas c
-      JOIN paciente p ON c.id_paciente = p.id_paciente
-      JOIN personal per ON c.id_personal = per.id_personal
-      WHERE c.estatus = 'Entrelazada' 
-      AND c.fecha = CURRENT_DATE
-    `);
+      JOIN paciente pac ON c.id_paciente = pac.id_paciente
+      LEFT JOIN personal p ON c.id_personal = p.id_personal
+      WHERE c.fecha = CURRENT_DATE
+      AND c.estatus = 'Entrelazada'
+      
+      -- 👇 AQUÍ ESTÁ EL TRUCO: ACEPTAR 'P' Y 'V' 👇
+      AND c.tipo_cita IN ('P', 'V')
+      
+      ORDER BY c.hora_inicio ASC
+    `;
+    
+    const result = await pool.query(query);
     res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error al obtener citas" });
   }
 });
 
@@ -2693,6 +2708,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

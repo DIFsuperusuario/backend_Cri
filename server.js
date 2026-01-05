@@ -2573,23 +2573,22 @@ const sqlPacientes = `
 
 //////////////////////////////CAMPO TALI/////////////////TALIMON//////////////TALIMON/////////////////////////////////////////
 
-// --- NUEVO ENDPOINT: CARGA DE TRABAJO POR TERAPEUTA ---
+// --- NUEVO ENDPOINT: CARGA DE TRABAJO POR TERAPEUTA (CORREGIDO) ---
 app.get('/estadisticas-carga', async (req, res) => {
   try {
-const query = `
+    const query = `
       SELECT 
         p.id_personal,
         p.nombre,
         p.funcion as area,
         EXTRACT(MONTH FROM c.fecha) as mes_num,
-        TO_CHAR(c.fecha, 'Month') as mes_nombre, -- Ojo: Esto devuelve 'January  ', 'February ' (con espacios)
+        TO_CHAR(c.fecha, 'Month') as mes_nombre,
         EXTRACT(WEEK FROM c.fecha) as semana_num,
         MIN(c.fecha) as inicio_semana, 
         MAX(c.fecha) as fin_semana,    
         c.tipo_cita,
         COUNT(*) as total
       FROM personal p
-      -- 👇 EL CAMBIO MÁGICO ESTÁ AQUÍ ABAJO 👇
       LEFT JOIN citas c ON p.id_personal = c.id_personal AND c.fecha >= DATE_TRUNC('year', CURRENT_DATE) 
       WHERE p.funcion != 'Admin' 
       GROUP BY p.id_personal, p.nombre, p.funcion, mes_num, mes_nombre, semana_num, c.tipo_cita
@@ -2598,34 +2597,38 @@ const query = `
     
     const result = await pool.query(query);
     
-    // --- PROCESAMIENTO DE DATOS ---
     const cargaTrabajo = {};
 
     result.rows.forEach(row => {
       const id = row.id_personal;
       
+      // 1. Siempre creamos al terapeuta (tenga citas o no)
       if (!cargaTrabajo[id]) {
         cargaTrabajo[id] = {
           id: id,
           nombre: row.nombre, 
-          area: row.area,     // Esto tomará el valor de 'funcion' gracias al alias
+          area: row.area,     
           meses: {}
         };
       }
 
-      // Normalizar nombre del mes
+      // 🚨 FIX: Si no hay mes (es null), es un terapeuta sin trabajo.
+      // Nos salimos de este ciclo aquí para no tronar con el .trim()
+      if (!row.mes_num) return; 
+
+      // --- A partir de aquí solo entra si TIENE citas ---
       const mesKey = row.mes_num; 
 
       if (!cargaTrabajo[id].meses[mesKey]) {
         cargaTrabajo[id].meses[mesKey] = {
-          nombre: row.mes_nombre.trim(),
+          // Usamos el ? por seguridad extra
+          nombre: row.mes_nombre ? row.mes_nombre.trim() : 'Mes Desconocido',
           primera_vez: 0,
           tratamiento: 0,
           semanas: {}
         };
       }
 
-      // Sumar contadores
       const cantidad = parseInt(row.total);
       if (row.tipo_cita === 'P' || row.tipo_cita === 'V') {
         cargaTrabajo[id].meses[mesKey].primera_vez += cantidad;
@@ -2633,7 +2636,6 @@ const query = `
         cargaTrabajo[id].meses[mesKey].tratamiento += cantidad;
       }
 
-      // Lógica de Semanas
       const semKey = row.semana_num;
       if (!cargaTrabajo[id].meses[mesKey].semanas[semKey]) {
         cargaTrabajo[id].meses[mesKey].semanas[semKey] = {
@@ -2673,5 +2675,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 

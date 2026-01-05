@@ -1,4 +1,23 @@
 require('dotenv').config(); // <--- IMPORTANTE: Esto lee tu archivo .env
+
+require('dotenv').config(); // <--- IMPORTANTE: Esto lee tu archivo .env
+// Arriba con los otros require
+const cors = require('cors'); // <--- 1. IMPORTAR
+
+// Justo después de crear 'app', agrega esto:
+app.use(cors()); // <--- 2. ACTIVAR (Deja pasar a todos)
+app.use(express.json());
+const express = require("express");
+const cors = require("cors");
+const { Pool } = require("pg");
+const bcrypt = require("bcrypt");
+// El puerto lo decide Railway en la nube, o usa el 3000 en tu PC
+const PORT = process.env.PORT || 3000; 
+const app = express();
+const fs = require('fs');       
+const path = require('path');   
+const ExcelJS = require('exceljs'); 
+
 const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
@@ -2708,6 +2727,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

@@ -2573,6 +2573,107 @@ const sqlPacientes = `
 
 //////////////////////////////CAMPO TALI/////////////////TALIMON//////////////TALIMON/////////////////////////////////////////
 
+// --- NUEVO ENDPOINT: CARGA DE TRABAJO POR TERAPEUTA ---
+app.get('/estadisticas-carga', async (req, res) => {
+  try {
+    // 1. Obtenemos todos los terapeutas y sus citas futuras o del año actual
+    // Usamos TO_CHAR para sacar el nombre del mes y el número de semana directo de la base
+    const query = `
+      SELECT 
+        p.id_personal,
+        p.nombre_completo,
+        p.rol as area,
+        EXTRACT(MONTH FROM c.fecha) as mes_num,
+        TO_CHAR(c.fecha, 'Month') as mes_nombre,
+        EXTRACT(WEEK FROM c.fecha) as semana_num,
+        MIN(c.fecha) as inicio_semana, -- Para saber que dia empieza la semana
+        MAX(c.fecha) as fin_semana,    -- Para saber que dia termina
+        c.tipo_cita,
+        COUNT(*) as total
+      FROM personal p
+      LEFT JOIN citas c ON p.id_personal = c.id_personal
+      WHERE c.fecha >= CURRENT_DATE 
+      AND p.rol != 'Admin' -- Filtramos para no traer admins que no dan terapia
+      GROUP BY p.id_personal, mes_num, mes_nombre, semana_num, c.tipo_cita
+      ORDER BY p.nombre_completo, mes_num, semana_num;
+    `;
+    
+    // NOTA: Si usas MySQL en lugar de Postgres, TO_CHAR cambia a MONTHNAME(c.fecha)
+    // Como tu base es Postgres (vi la imagen), el código de arriba es el correcto.
+
+    const result = await pool.query(query);
+    
+    // 2. Procesamos la data para enviarla bonita al Flutter
+    // Convertimos la lista plana de SQL en una estructura anidada (Terapeuta -> Meses -> Semanas)
+    const cargaTrabajo = {};
+
+    result.rows.forEach(row => {
+      const id = row.id_personal;
+      
+      if (!cargaTrabajo[id]) {
+        cargaTrabajo[id] = {
+          id: id,
+          nombre: row.nombre_completo,
+          area: row.area,
+          meses: {}
+        };
+      }
+
+      // Normalizar nombre del mes (Postgres lo trae en inglés/español según config, aqui lo usaremos de llave)
+      const mesKey = row.mes_num; 
+
+      if (!cargaTrabajo[id].meses[mesKey]) {
+        cargaTrabajo[id].meses[mesKey] = {
+          nombre: row.mes_nombre.trim(), // 'January'
+          primera_vez: 0,
+          tratamiento: 0,
+          semanas: {}
+        };
+      }
+
+      // Sumar contadores segun tipo
+      // P = Primera, V = Valorada (Las contamos como etapa inicial), A = Asignada/Tratamiento
+      const cantidad = parseInt(row.total);
+      if (row.tipo_cita === 'P' || row.tipo_cita === 'V') {
+        cargaTrabajo[id].meses[mesKey].primera_vez += cantidad;
+      } else if (row.tipo_cita === 'A') {
+        cargaTrabajo[id].meses[mesKey].tratamiento += cantidad;
+      }
+
+      // Lógica de Semanas
+      const semKey = row.semana_num;
+      if (!cargaTrabajo[id].meses[mesKey].semanas[semKey]) {
+        cargaTrabajo[id].meses[mesKey].semanas[semKey] = {
+          rango: `Del ${new Date(row.inicio_semana).getDate()} al ${new Date(row.fin_semana).getDate()}`,
+          primera_vez: 0,
+          tratamiento: 0
+        };
+      }
+
+      if (row.tipo_cita === 'P' || row.tipo_cita === 'V') {
+        cargaTrabajo[id].meses[mesKey].semanas[semKey].primera_vez += cantidad;
+      } else if (row.tipo_cita === 'A') {
+        cargaTrabajo[id].meses[mesKey].semanas[semKey].tratamiento += cantidad;
+      }
+    });
+
+    // Convertir objeto a array para Flutter
+    const respuestaFinal = Object.values(cargaTrabajo).map(t => {
+      t.meses = Object.values(t.meses).map(m => {
+        m.semanas = Object.values(m.semanas); // Convertir semanas a array
+        return m;
+      });
+      return t;
+    });
+
+    res.json(respuestaFinal);
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error calculando carga de trabajo" });
+  }
+});
+
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
 // ---------------------------

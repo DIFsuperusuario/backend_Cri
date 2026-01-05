@@ -610,25 +610,25 @@ app.get('/citas-entrelazadas-hoy', async (req, res) => {
         c.hora_inicio, 
         c.id_paciente, 
         c.estatus,
-        c.tipo_cita,  -- Asegúrate de traer esta columna para saber cuál es cuál
-        pac.nombre_completo as nombre,
+        c.tipo_cita,
+        
+        -- 👇 CORRECCIÓN AQUÍ: Cambiamos nombre_completo por nombre 👇
+        pac.nombre as nombre, 
+        
         p.nombre as nombre_medico
       FROM citas c
       JOIN paciente pac ON c.id_paciente = pac.id_paciente
       LEFT JOIN personal p ON c.id_personal = p.id_personal
       WHERE c.fecha = CURRENT_DATE
       AND c.estatus = 'Entrelazada'
-      
-      -- 👇 AQUÍ ESTÁ EL TRUCO: ACEPTAR 'P' Y 'V' 👇
       AND c.tipo_cita IN ('P', 'V')
-      
       ORDER BY c.hora_inicio ASC
     `;
     
     const result = await pool.query(query);
     res.json(result.rows);
   } catch (error) {
-    console.error(error);
+    console.error("❌ ERROR SQL:", error.message); // Esto nos mostrará el error real en los logs
     res.status(500).json({ error: "Error al obtener citas" });
   }
 });
@@ -2708,6 +2708,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

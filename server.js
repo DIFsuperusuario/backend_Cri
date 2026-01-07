@@ -2721,7 +2721,7 @@ app.get("/pacientes/pendientes-cita", async (req, res) => {
         p.telefono, 
         p.servicio,
         p.fecha_registro
-      FROM pacientes p
+      FROM paciente p
       LEFT JOIN citas c ON p.id_paciente = c.id_paciente
       WHERE c.id_paciente IS NULL
       ORDER BY p.fecha_registro DESC;
@@ -2742,6 +2742,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

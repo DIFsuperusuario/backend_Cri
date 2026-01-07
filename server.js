@@ -2735,6 +2735,31 @@ app.get("/pacientes/pendientes-cita", async (req, res) => {
   }
 });;
 
+// 🚀 NUEVO SERVICIO: Guardar paciente solo (sin cita aún)
+app.post("/pacientes", async (req, res) => {
+  try {
+    const { nombre, curp, telefono, domicilio, cp, sexo, edo_civil, escolaridad, ref_medica, motivo_estudio, servicio } = req.body;
+
+    const query = `
+      INSERT INTO paciente (
+        nombre, curp, telefono, domicilio, cp, sexo, 
+        edo_civil, escolaridad, ref_medica, motivo_estudio, servicio, fecha_registro
+      ) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+      RETURNING *;
+    `;
+
+    const values = [nombre, curp, telefono, domicilio, cp, sexo, edo_civil, escolaridad, ref_medica, motivo_estudio, servicio];
+    const result = await pool.query(query, values);
+
+    // Si todo sale bien, mandamos el paciente creado de vuelta
+    res.status(201).json(result.rows[0]); 
+  } catch (err) {
+    console.error("Error al registrar paciente:", err);
+    res.status(500).json({ error: "No se pudo guardar la información" });
+  }
+});
+
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
 // ---------------------------
@@ -2742,6 +2767,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

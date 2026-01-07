@@ -2720,7 +2720,7 @@ app.get("/pacientes/pendientes-cita", async (req, res) => {
         p.curp, 
         p.telefono, 
         p.servicio,
-        p.fecha_registro
+        p.fecha_registro -- Esta ya funcionará tras el ALTER TABLE
       FROM paciente p
       LEFT JOIN citas c ON p.id_paciente = c.id_paciente
       WHERE c.id_paciente IS NULL
@@ -2731,9 +2731,9 @@ app.get("/pacientes/pendientes-cita", async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error("Error en /pacientes/pendientes-cita:", err);
-    res.status(500).json({ error: "Error al obtener la lista de pendientes" });
+    res.status(500).json({ error: "Error interno del servidor" });
   }
-});
+});;
 
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
@@ -2742,6 +2742,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

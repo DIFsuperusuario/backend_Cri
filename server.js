@@ -2738,25 +2738,35 @@ app.get("/pacientes/pendientes-cita", async (req, res) => {
 // 🚀 NUEVO SERVICIO: Guardar paciente solo (sin cita aún)
 app.post("/pacientes", async (req, res) => {
   try {
-    const { nombre, curp, telefono, domicilio, cp, sexo, edo_civil, escolaridad, ref_medica, motivo_estudio, servicio } = req.body;
+    // 1. Extraemos los 14 campos que manda Flutter
+    const { 
+      nombre, edad, fecha_nac, entidad_fed, curp, 
+      telefono, domicilio, cp, sexo, edo_civil, 
+      escolaridad, ref_medica, servicio, motivo_estudio 
+    } = req.body;
 
+    // 2. Ajustamos la consulta con 14 columnas y 14 símbolos de $
     const query = `
       INSERT INTO paciente (
-        nombre, curp, telefono, domicilio, cp, sexo, 
-        edo_civil, escolaridad, ref_medica, motivo_estudio, servicio, fecha_registro
+        nombre, edad, fecha_nac, entidad_fed, curp, 
+        telefono, domicilio, cp, sexo, edo_civil, 
+        escolaridad, ref_medica, servicio, motivo_estudio, fecha_registro
       ) 
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
       RETURNING *;
     `;
 
-    const values = [nombre, curp, telefono, domicilio, cp, sexo, edo_civil, escolaridad, ref_medica, motivo_estudio, servicio];
-    const result = await pool.query(query, values);
+    const values = [
+      nombre, edad, fecha_nac, entidad_fed, curp, 
+      telefono, domicilio, cp, sexo, edo_civil, 
+      escolaridad, ref_medica, servicio, motivo_estudio
+    ];
 
-    // Si todo sale bien, mandamos el paciente creado de vuelta
-    res.status(201).json(result.rows[0]); 
+    const result = await pool.query(query, values);
+    res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error("Error al registrar paciente:", err);
-    res.status(500).json({ error: "No se pudo guardar la información" });
+    console.error("Error al registrar:", err);
+    res.status(500).json({ error: "Error en el servidor" });
   }
 });
 
@@ -2767,6 +2777,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

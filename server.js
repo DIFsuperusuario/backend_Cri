@@ -2713,25 +2713,25 @@ const query = `
 // Busca pacientes en la tabla 'pacientes' que NO aparecen en la tabla 'citas'
 app.get("/pacientes/pendientes-cita", async (req, res) => {
   try {
-    const query = `
-      SELECT 
-        p.id_paciente, 
-        p.nombre, 
-        p.curp, 
-        p.telefono, 
-        p.servicio,
-        p.edad,          -- 👈 AGREGAR ESTA
-        p.fecha_nac,     -- 👈 AGREGAR ESTA
-        p.entidad_fed,   -- 👈 AGREGAR ESTA
-        p.domicilio,     -- 👈 AGREGAR ESTA
-        p.ref_medica,    -- 👈 AGREGAR ESTA
-        p.motivo_estudio,-- 👈 AGREGAR ESTA
-        p.fecha_registro 
-      FROM paciente p
-      LEFT JOIN citas c ON p.id_paciente = c.id_paciente
-      WHERE c.id_paciente IS NULL
-      ORDER BY p.fecha_registro DESC;
-    `;
+const query = `
+  SELECT 
+    p.id_paciente, 
+    p.nombre, 
+    p.curp, 
+    p.telefono, 
+    p.servicio,
+    p.edad,
+    p.fecha_nac,
+    p.entidad_fed,
+    p.domicilio,
+    p.ref_medica,
+    p.motivo_estudio,
+    p.fecha_registro 
+  FROM paciente p
+  LEFT JOIN citas c ON p.id_paciente = c.id_paciente
+  WHERE c.id_paciente IS NULL
+  ORDER BY p.fecha_registro ASC; -- 👈 CAMBIO CLAVE AQUÍ
+`;;
     
     const result = await pool.query(query);
     res.json(result.rows);
@@ -2783,6 +2783,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

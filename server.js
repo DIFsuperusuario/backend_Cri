@@ -2720,7 +2720,13 @@ app.get("/pacientes/pendientes-cita", async (req, res) => {
         p.curp, 
         p.telefono, 
         p.servicio,
-        p.fecha_registro -- Esta ya funcionará tras el ALTER TABLE
+        p.edad,          -- 👈 AGREGAR ESTA
+        p.fecha_nac,     -- 👈 AGREGAR ESTA
+        p.entidad_fed,   -- 👈 AGREGAR ESTA
+        p.domicilio,     -- 👈 AGREGAR ESTA
+        p.ref_medica,    -- 👈 AGREGAR ESTA
+        p.motivo_estudio,-- 👈 AGREGAR ESTA
+        p.fecha_registro 
       FROM paciente p
       LEFT JOIN citas c ON p.id_paciente = c.id_paciente
       WHERE c.id_paciente IS NULL
@@ -2730,10 +2736,10 @@ app.get("/pacientes/pendientes-cita", async (req, res) => {
     const result = await pool.query(query);
     res.json(result.rows);
   } catch (err) {
-    console.error("Error en /pacientes/pendientes-cita:", err);
-    res.status(500).json({ error: "Error interno del servidor" });
+    console.error("Error en pendientes:", err);
+    res.status(500).json({ error: "Error interno" });
   }
-});;
+});
 
 // 🚀 NUEVO SERVICIO: Guardar paciente solo (sin cita aún)
 app.post("/pacientes", async (req, res) => {
@@ -2777,6 +2783,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

@@ -2776,6 +2776,21 @@ app.post("/pacientes", async (req, res) => {
   }
 });
 
+// 🗑️ ELIMINAR PACIENTE (Solo si no tiene citas, que es el caso de esta lista)
+app.delete("/pacientes/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    // Borramos directo de la tabla paciente
+    const query = "DELETE FROM paciente WHERE id_paciente = $1";
+    await pool.query(query, [id]);
+    
+    res.json({ message: "Paciente eliminado del sistema" });
+  } catch (err) {
+    console.error("Error al eliminar:", err);
+    res.status(500).json({ error: "No se pudo eliminar" });
+  }
+});
+
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
 // ---------------------------
@@ -2783,6 +2798,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

@@ -2835,7 +2835,7 @@ app.get("/cargas-trabajo/detalle", async (req, res) => {
         p.sexo,
         p.telefono,
         p.domicilio,
-        p.estado_civil,
+        p.edo_civil,
         p.escolaridad,
         p.servicio,
         p.ref_medica,
@@ -2865,4 +2865,5 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 

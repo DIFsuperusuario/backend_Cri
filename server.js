@@ -2768,41 +2768,72 @@ const query = `
   }
 });
 
-// 🚀 NUEVO SERVICIO: Guardar paciente solo (sin cita aún)
+// 🚀 NUEVO SERVICIO: Guardar paciente (Corregido y Alineado)
 app.post("/pacientes", async (req, res) => {
   // 1. Recibimos el dato nuevo del body
   const { 
     nombre, edad, fecha_nac, entidad_fed, curp, domicilio, 
     cp, telefono, sexo, edo_civil, escolaridad, ref_medica, 
-    servicio, motivo_estudio, num_programa, 
-    es_estimulacion_temprana // 👈 NUEVO CAMPO
-    
+    servicio, motivo_estudio, 
+    num_programa,               // Este lo usaremos para 'num_programa_actual'
+    es_estimulacion_temprana    // 👈 NUEVO CAMPO
   } = req.body;
 
   try {
     const query = `
       INSERT INTO paciente (
-        nombre, edad, fecha_nac, entidad_fed, curp, domicilio, 
-        cp, telefono, sexo, edo_civil, escolaridad, ref_medica, 
-        servicio, motivo_estudio, fecha_registro,
-        es_estimulacion_temprana,
-        num_programa_actual 
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), $16) 
+        nombre, 
+        edad, 
+        fecha_nac, 
+        entidad_fed, 
+        curp, 
+        domicilio, 
+        cp, 
+        telefono, 
+        sexo, 
+        edo_civil, 
+        escolaridad, 
+        ref_medica, 
+        servicio, 
+        motivo_estudio, 
+        fecha_registro,            -- Columna 15
+        es_estimulacion_temprana,  -- Columna 16
+        num_programa_actual        -- Columna 17
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, 
+        $7, $8, $9, $10, $11, $12, 
+        $13, $14, 
+        NOW(), -- Valor para fecha_registro (automático)
+        $15,   -- Valor para es_estimulacion_temprana
+        $16    -- Valor para num_programa_actual
+      ) 
       RETURNING id_paciente;
     `;
     
     const values = [
-      nombre, edad, fecha_nac, entidad_fed, curp, domicilio, 
-      cp, telefono, sexo, edo_civil, escolaridad, ref_medica, 
-      servicio, motivo_estudio, num_programa, 
-      es_estimulacion_temprana || false ,
-      num_programa || 1
+      nombre, 
+      edad, 
+      fecha_nac, 
+      entidad_fed, 
+      curp, 
+      domicilio, 
+      cp, 
+      telefono, 
+      sexo, 
+      edo_civil, 
+      escolaridad, 
+      ref_medica, 
+      servicio, 
+      motivo_estudio,               // Hasta aquí van $14
+      es_estimulacion_temprana || false, // $15 (Booleano)
+      num_programa || 1             // $16 (Entero)
     ];
 
     const result = await pool.query(query, values);
     res.status(201).json(result.rows[0]);
+
   } catch (err) {
-    console.error(err);
+    console.error("Error en POST /pacientes:", err); // Agregué mensaje para identificarlo rápido en logs
     res.status(500).send("Error al registrar paciente");
   }
 });
@@ -2875,6 +2906,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

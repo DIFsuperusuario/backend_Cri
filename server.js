@@ -2818,6 +2818,7 @@ app.delete("/pacientes/:id", async (req, res) => {
 });
 
 // 📅 OBTENER DETALLE DE CITAS POR TERAPEUTA Y MES
+// 📅 OBTENER DETALLE DE CITAS (CON EXPEDIENTE COMPLETO)
 app.get("/cargas-trabajo/detalle", async (req, res) => {
   const { idPersonal, mes, anio } = req.query;
   
@@ -2825,16 +2826,23 @@ app.get("/cargas-trabajo/detalle", async (req, res) => {
     const query = `
       SELECT 
         c.fecha,
-        TO_CHAR(c.fecha, 'DD') as dia_numero, -- Sacamos solo el día (ej. 09)
+        TO_CHAR(c.fecha, 'DD') as dia_numero,
         c.hora_inicio,
         c.hora_fin,
+        -- 👇 AQUÍ AGREGAMOS TODOS LOS CAMPOS DEL PACIENTE
         p.nombre,
-        p.servicio,
-        p.telefono,
+        p.fecha_nacimiento,
         p.edad,
+        p.genero,
+        p.telefono,
         p.domicilio,
+        p.ocupacion,
+        p.estado_civil,
+        p.escolaridad,
+        p.servicio,
         p.ref_medica,
-        p.motivo_estudio
+        p.motivo_estudio,
+        TO_CHAR(p.fecha_registro, 'DD/MM/YYYY') as fecha_registro_fmt -- Formato bonito
       FROM citas c
       JOIN paciente p ON c.id_paciente = p.id_paciente
       WHERE c.id_personal = $1
@@ -2859,30 +2867,3 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

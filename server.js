@@ -2816,6 +2816,41 @@ app.delete("/pacientes/:id", async (req, res) => {
   }
 });
 
+// 📅 OBTENER DETALLE DE CITAS POR TERAPEUTA Y MES
+app.get("/cargas-trabajo/detalle", async (req, res) => {
+  const { idPersonal, mes, anio } = req.query;
+  
+  try {
+    const query = `
+      SELECT 
+        c.fecha,
+        TO_CHAR(c.fecha, 'DD') as dia_numero, -- Sacamos solo el día (ej. 09)
+        c.hora_inicio,
+        c.hora_fin,
+        p.nombre,
+        p.servicio,
+        p.telefono,
+        p.edad,
+        p.domicilio,
+        p.ref_medica,
+        p.motivo_estudio
+      FROM citas c
+      JOIN paciente p ON c.id_paciente = p.id_paciente
+      WHERE c.id_personal = $1
+        AND EXTRACT(MONTH FROM c.fecha) = $2
+        AND EXTRACT(YEAR FROM c.fecha) = $3
+        AND c.estatus != 'Cancelada'
+      ORDER BY c.fecha ASC, c.hora_inicio ASC;
+    `;
+    
+    const result = await pool.query(query, [idPersonal, mes, anio]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error detalle carga:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
 // ---------------------------
@@ -2823,6 +2858,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

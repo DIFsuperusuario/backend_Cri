@@ -970,33 +970,32 @@ app.get("/citas-hoy-primera-vez", async (req, res) => {
 // -----------------------------------------------------------
 // --- RUTA DE DIRECTORIO / BÚSQUEDA PERSONAL ---
 // -----------------------------------------------------------
+// 🔍 BUSCAR PERSONAL (VERSIÓN ROBUSTA COPIADA DE HORARIOS)
 app.get("/buscar-personal", async (req, res) => {
-  // 1. Ahora leemos TAMBIÉN el "area" que manda Flutter
   const { query, area } = req.query; 
-
   const client = await pool.connect();
+
   try {
-    // Comenzamos con una consulta base que trae todo
-    let sql = "SELECT id_personal, nombre, funcion AS especialidad FROM personal WHERE 1=1";
+    let sql = "SELECT id_personal, nombre, funcion AS especialidad FROM personal WHERE estatus = 'Activo'";
     let params = [];
-    let paramCounter = 1; // Para llevar la cuenta de $1, $2, etc.
+    let paramCounter = 1;
 
-    // 2. FILTRO POR ÁREA (Lo que faltaba)
-    // Si Flutter manda un área y no es "Todos", la agregamos al WHERE
+    // 1. FILTRO POR ÁREA (Usando la lógica ganadora: TRIM + UNACCENT + ILIKE)
     if (area && area !== 'Todos' && area !== '') {
-      sql += ` AND funcion = $${paramCounter}`; // O usa ILIKE si prefieres
-      params.push(area);
+      // El '%' al inicio y final permite que "Psicolog" encuentre "Psicología"
+      // TRIM limpia espacios basura como "Psicologia "
+      sql += ` AND unaccent(TRIM(funcion)) ILIKE unaccent($${paramCounter})`;
+      params.push(`%${area.trim()}%`); 
       paramCounter++;
     }
 
-    // 3. FILTRO POR NOMBRE (Tu lógica original)
+    // 2. FILTRO POR NOMBRE (Igual de robusto)
     if (query && query.trim() !== "") {
-      sql += ` AND unaccent(nombre) ILIKE unaccent($${paramCounter})`;
-      params.push(`%${query}%`);
+      sql += ` AND unaccent(TRIM(nombre)) ILIKE unaccent($${paramCounter})`;
+      params.push(`%${query.trim()}%`);
       paramCounter++;
     }
 
-    // 4. Ordenamos siempre bonito
     sql += " ORDER BY funcion, nombre;";
 
     const result = await client.query(sql, params);
@@ -2861,6 +2860,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

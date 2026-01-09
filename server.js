@@ -970,27 +970,26 @@ app.get("/citas-hoy-primera-vez", async (req, res) => {
 // -----------------------------------------------------------
 // --- RUTA DE DIRECTORIO / BÚSQUEDA PERSONAL ---
 // -----------------------------------------------------------
-// 🔍 BUSCAR PERSONAL (VERSIÓN ROBUSTA COPIADA DE HORARIOS)
-// 🔍 BUSCAR PERSONAL (VERSIÓN ROBUSTA COPIADA DE HORARIOS)
+// 🔍 BUSCAR PERSONAL (CORREGIDO: SIN COLUMNA ESTATUS)
 app.get("/buscar-personal", async (req, res) => {
   const { query, area } = req.query; 
   const client = await pool.connect();
 
   try {
-    let sql = "SELECT id_personal, nombre, funcion AS especialidad FROM personal WHERE estatus = 'Activo'";
+    // 👇 CAMBIO AQUÍ: Quitamos "WHERE estatus = 'Activo'"
+    // Usamos 1=1 para poder concatenar los AND sin problemas
+    let sql = "SELECT id_personal, nombre, funcion AS especialidad FROM personal WHERE 1=1";
     let params = [];
     let paramCounter = 1;
 
-    // 1. FILTRO POR ÁREA (Usando la lógica ganadora: TRIM + UNACCENT + ILIKE)
+    // 1. FILTRO POR ÁREA (TRIM + UNACCENT + ILIKE)
     if (area && area !== 'Todos' && area !== '') {
-      // El '%' al inicio y final permite que "Psicolog" encuentre "Psicología"
-      // TRIM limpia espacios basura como "Psicologia "
       sql += ` AND unaccent(TRIM(funcion)) ILIKE unaccent($${paramCounter})`;
       params.push(`%${area.trim()}%`); 
       paramCounter++;
     }
 
-    // 2. FILTRO POR NOMBRE (Igual de robusto)
+    // 2. FILTRO POR NOMBRE
     if (query && query.trim() !== "") {
       sql += ` AND unaccent(TRIM(nombre)) ILIKE unaccent($${paramCounter})`;
       params.push(`%${query.trim()}%`);
@@ -1009,7 +1008,6 @@ app.get("/buscar-personal", async (req, res) => {
     client.release();
   }
 });
-
 // ---------------------------
 // RUTA DE PRUEBA DE DB
 // ---------------------------
@@ -2861,6 +2859,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

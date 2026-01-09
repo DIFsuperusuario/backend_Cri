@@ -971,6 +971,7 @@ app.get("/citas-hoy-primera-vez", async (req, res) => {
 // --- RUTA DE DIRECTORIO / BÚSQUEDA PERSONAL ---
 // -----------------------------------------------------------
 // 🔍 BUSCAR PERSONAL (VERSIÓN ROBUSTA COPIADA DE HORARIOS)
+// 🔍 BUSCAR PERSONAL (VERSIÓN ROBUSTA COPIADA DE HORARIOS)
 app.get("/buscar-personal", async (req, res) => {
   const { query, area } = req.query; 
   const client = await pool.connect();
@@ -2860,6 +2861,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

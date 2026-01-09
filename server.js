@@ -2776,7 +2776,7 @@ app.post("/pacientes", async (req, res) => {
     cp, telefono, sexo, edo_civil, escolaridad, ref_medica, 
     servicio, motivo_estudio, num_programa, 
     es_estimulacion_temprana // 👈 NUEVO CAMPO
-    num_programa,
+    
   } = req.body;
 
   try {
@@ -2795,7 +2795,7 @@ app.post("/pacientes", async (req, res) => {
       nombre, edad, fecha_nac, entidad_fed, curp, domicilio, 
       cp, telefono, sexo, edo_civil, escolaridad, ref_medica, 
       servicio, motivo_estudio, num_programa, 
-      es_estimulacion_temprana || false 
+      es_estimulacion_temprana || false ,
       num_programa || 1
     ];
 
@@ -2875,6 +2875,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

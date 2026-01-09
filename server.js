@@ -2818,6 +2818,7 @@ app.delete("/pacientes/:id", async (req, res) => {
 });
 
 // 📅 OBTENER DETALLE DE CITAS POR TERAPEUTA Y MES
+// 📅 OBTENER DETALLE DE CITAS POR TERAPEUTA Y MES
 app.get("/cargas-trabajo/detalle", async (req, res) => {
   const { idPersonal, mes, anio } = req.query;
   
@@ -2837,6 +2838,9 @@ app.get("/cargas-trabajo/detalle", async (req, res) => {
         p.domicilio,
         p.edo_civil,
         p.escolaridad,
+        p.ocupacion,
+        p.entidad_fed,
+        p.cp,
         p.servicio,
         p.ref_medica,
         p.motivo_estudio,
@@ -2858,6 +2862,7 @@ app.get("/cargas-trabajo/detalle", async (req, res) => {
   }
 });
 
+
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
 // ---------------------------
@@ -2865,5 +2870,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 

@@ -2593,6 +2593,31 @@ const sqlPacientes = `
 });
 
 
+// 📅 OBTENER CITAS DE HOY (Para Trabajo Social / Dashboard)
+app.get("/citas-hoy", async (req, res) => {
+  try {
+    // Usamos CURRENT_DATE para que Postgres filtre solo lo de hoy automáticamente
+    const query = `
+      SELECT 
+        p.id_paciente, 
+        p.nombre, 
+        c.hora_inicio, 
+        c.hora_fin, 
+        c.estatus, 
+        c.tipo_cita as "tipoCita"
+      FROM citas c
+      JOIN paciente p ON c.id_paciente = p.id_paciente
+      WHERE c.fecha = CURRENT_DATE
+      ORDER BY c.hora_inicio ASC;
+    `;
+    
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error al obtener citas de hoy:", err);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
 
 //////////////////////////////CAMPO TALI/////////////////TALIMON//////////////TALIMON/////////////////////////////////////////
 
@@ -2798,6 +2823,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

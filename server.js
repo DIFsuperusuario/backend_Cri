@@ -971,30 +971,33 @@ app.get("/citas-hoy-primera-vez", async (req, res) => {
 // --- RUTA DE DIRECTORIO / BÚSQUEDA PERSONAL ---
 // -----------------------------------------------------------
 app.get("/buscar-personal", async (req, res) => {
-  const { query } = req.query; 
+  // 1. Ahora leemos TAMBIÉN el "area" que manda Flutter
+  const { query, area } = req.query; 
 
   const client = await pool.connect();
   try {
-    let sql = "";
+    // Comenzamos con una consulta base que trae todo
+    let sql = "SELECT id_personal, nombre, funcion AS especialidad FROM personal WHERE 1=1";
     let params = [];
+    let paramCounter = 1; // Para llevar la cuenta de $1, $2, etc.
 
-    if (query && query.trim() !== "") {
-      // CASO 1: Búsqueda específica
-      sql = `
-        SELECT id_personal, nombre, funcion AS especialidad
-        FROM personal
-        WHERE unaccent(nombre) ILIKE unaccent($1)
-        ORDER BY funcion, nombre; -- Ordenamos por depto siempre
-      `;
-      params = [`%${query}%`];
-    } else {
-      // CASO 2: Traer TODO el directorio (Para la lista inicial)
-      sql = `
-        SELECT id_personal, nombre, funcion AS especialidad
-        FROM personal
-        ORDER BY funcion, nombre; 
-      `;
+    // 2. FILTRO POR ÁREA (Lo que faltaba)
+    // Si Flutter manda un área y no es "Todos", la agregamos al WHERE
+    if (area && area !== 'Todos' && area !== '') {
+      sql += ` AND funcion = $${paramCounter}`; // O usa ILIKE si prefieres
+      params.push(area);
+      paramCounter++;
     }
+
+    // 3. FILTRO POR NOMBRE (Tu lógica original)
+    if (query && query.trim() !== "") {
+      sql += ` AND unaccent(nombre) ILIKE unaccent($${paramCounter})`;
+      params.push(`%${query}%`);
+      paramCounter++;
+    }
+
+    // 4. Ordenamos siempre bonito
+    sql += " ORDER BY funcion, nombre;";
 
     const result = await client.query(sql, params);
     res.json(result.rows);
@@ -2858,6 +2861,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

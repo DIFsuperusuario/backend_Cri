@@ -2752,6 +2752,7 @@ const query = `
     p.domicilio,
     p.ref_medica,
     p.motivo_estudio,
+    p.es_estimulacion_temprana,
     p.fecha_registro 
   FROM paciente p
   LEFT JOIN citas c ON p.id_paciente = c.id_paciente
@@ -2871,6 +2872,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

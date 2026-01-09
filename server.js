@@ -2818,7 +2818,6 @@ app.delete("/pacientes/:id", async (req, res) => {
 });
 
 // 📅 OBTENER DETALLE DE CITAS POR TERAPEUTA Y MES
-// 📅 OBTENER DETALLE DE CITAS (CON EXPEDIENTE COMPLETO)
 app.get("/cargas-trabajo/detalle", async (req, res) => {
   const { idPersonal, mes, anio } = req.query;
   
@@ -2831,12 +2830,11 @@ app.get("/cargas-trabajo/detalle", async (req, res) => {
         c.hora_fin,
         -- 👇 AQUÍ AGREGAMOS TODOS LOS CAMPOS DEL PACIENTE
         p.nombre,
-        p.fecha_nacimiento,
+        p.fecha_nac,
         p.edad,
-        p.genero,
+        p.sexo,
         p.telefono,
         p.domicilio,
-        p.ocupacion,
         p.estado_civil,
         p.escolaridad,
         p.servicio,
@@ -2867,3 +2865,4 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+

@@ -2776,6 +2776,7 @@ app.post("/pacientes", async (req, res) => {
     cp, telefono, sexo, edo_civil, escolaridad, ref_medica, 
     servicio, motivo_estudio, num_programa, 
     es_estimulacion_temprana // 👈 NUEVO CAMPO
+    num_programa,
   } = req.body;
 
   try {
@@ -2783,8 +2784,9 @@ app.post("/pacientes", async (req, res) => {
       INSERT INTO paciente (
         nombre, edad, fecha_nac, entidad_fed, curp, domicilio, 
         cp, telefono, sexo, edo_civil, escolaridad, ref_medica, 
-        servicio, motivo_estudio, num_programa, fecha_registro,
-        es_estimulacion_temprana 
+        servicio, motivo_estudio, fecha_registro,
+        es_estimulacion_temprana,
+        num_programa_actual 
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), $16) 
       RETURNING id_paciente;
     `;
@@ -2794,6 +2796,7 @@ app.post("/pacientes", async (req, res) => {
       cp, telefono, sexo, edo_civil, escolaridad, ref_medica, 
       servicio, motivo_estudio, num_programa, 
       es_estimulacion_temprana || false 
+      num_programa || 1
     ];
 
     const result = await pool.query(query, values);
@@ -2872,6 +2875,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

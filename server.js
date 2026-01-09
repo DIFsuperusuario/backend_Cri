@@ -2769,36 +2769,37 @@ const query = `
 
 // 🚀 NUEVO SERVICIO: Guardar paciente solo (sin cita aún)
 app.post("/pacientes", async (req, res) => {
-  try {
-    // 1. Extraemos los 14 campos que manda Flutter
-    const { 
-      nombre, edad, fecha_nac, entidad_fed, curp, 
-      telefono, domicilio, cp, sexo, edo_civil, 
-      escolaridad, ref_medica, servicio, motivo_estudio 
-    } = req.body;
+  // 1. Recibimos el dato nuevo del body
+  const { 
+    nombre, edad, fecha_nac, entidad_fed, curp, domicilio, 
+    cp, telefono, sexo, edo_civil, escolaridad, ref_medica, 
+    servicio, motivo_estudio, num_programa, 
+    es_estimulacion_temprana // 👈 NUEVO CAMPO
+  } = req.body;
 
-    // 2. Ajustamos la consulta con 14 columnas y 14 símbolos de $
+  try {
     const query = `
       INSERT INTO paciente (
-        nombre, edad, fecha_nac, entidad_fed, curp, 
-        telefono, domicilio, cp, sexo, edo_civil, 
-        escolaridad, ref_medica, servicio, motivo_estudio, fecha_registro
-      ) 
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
-      RETURNING *;
+        nombre, edad, fecha_nac, entidad_fed, curp, domicilio, 
+        cp, telefono, sexo, edo_civil, escolaridad, ref_medica, 
+        servicio, motivo_estudio, num_programa, fecha_registro,
+        es_estimulacion_temprana 
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), $16) 
+      RETURNING id_paciente;
     `;
-
+    
     const values = [
-      nombre, edad, fecha_nac, entidad_fed, curp, 
-      telefono, domicilio, cp, sexo, edo_civil, 
-      escolaridad, ref_medica, servicio, motivo_estudio
+      nombre, edad, fecha_nac, entidad_fed, curp, domicilio, 
+      cp, telefono, sexo, edo_civil, escolaridad, ref_medica, 
+      servicio, motivo_estudio, num_programa, 
+      es_estimulacion_temprana || false 
     ];
 
     const result = await pool.query(query, values);
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error("Error al registrar:", err);
-    res.status(500).json({ error: "Error en el servidor" });
+    console.error(err);
+    res.status(500).send("Error al registrar paciente");
   }
 });
 
@@ -2870,6 +2871,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT} (y accesible en tu red)`);
 
 });
+
 
 
 

@@ -3141,7 +3141,40 @@ app.get("/gestion/buscar-paciente-global", async (req, res) => {
   }
 });
 
+app.get("/gestion/citas-paciente/:id", async (req, res) => {
+  const { id } = req.params;
 
+  try {
+    const sql = `
+      SELECT 
+        c.id_cita,
+        to_char(c.fecha, 'Day, DD Month YYYY') as fecha_formato,
+        c.fecha,
+        
+        -- 👇 AQUÍ ESTÁ EL CAMBIO MAESTRO:
+        -- Usamos tu columna real 'hora_inicio' pero la enviamos como 'hora'
+        c.hora_inicio as hora, 
+        
+        c.estatus,
+        per.nombre as nombre_terapeuta,
+        per.funcion as area
+      FROM citas c
+      JOIN personal per ON c.id_personal = per.id_personal
+      WHERE 
+        c.id_paciente = $1
+        AND c.fecha >= CURRENT_DATE 
+        AND c.estatus != 'Cancelada'
+      ORDER BY c.fecha ASC, c.hora_inicio ASC; -- También ordenamos por la hora real
+    `;
+    
+    const result = await pool.query(sql, [id]);
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error("🔥 Error obteniendo citas del paciente:", error);
+    res.status(500).json([]);
+  }
+});
 
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)

@@ -3176,6 +3176,44 @@ app.get("/gestion/citas-paciente/:id", async (req, res) => {
   }
 });
 
+
+// -----------------------------------------------------------
+// --- RUTA: ELIMINAR PACIENTE COMPLETAMENTE (NUCLEAR) ---
+// -----------------------------------------------------------
+app.delete("/gestion/eliminar-paciente/:id", async (req, res) => {
+  const { id } = req.params;
+  
+  // Usamos un cliente dedicado para poder hacer TRANSACTION
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN'); // --- INICIA LA TRANSACCIÓN ---
+
+    // 1. Borrar historial
+    await client.query('DELETE FROM historial_consultas WHERE id_paciente = $1', [id]);
+    
+    // 2. Borrar familiares
+    await client.query('DELETE FROM familiar WHERE id_paciente = $1', [id]);
+
+    // 3. Borrar citas
+    await client.query('DELETE FROM citas WHERE id_paciente = $1', [id]);
+
+    // 4. FINALMENTE, borrar al paciente
+    await client.query('DELETE FROM paciente WHERE id_paciente = $1', [id]);
+
+    await client.query('COMMIT'); // --- CONFIRMA LOS CAMBIOS ---
+    
+    res.json({ message: "Paciente eliminado totalmente." });
+
+  } catch (error) {
+    await client.query('ROLLBACK'); // Si algo falla, deshace todo
+    console.error("🔥 Error eliminando paciente:", error);
+    res.status(500).json({ error: "No se pudo eliminar al paciente." });
+  } finally {
+    client.release(); // Liberamos la conexión
+  }
+});
+
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
 // ---------------------------

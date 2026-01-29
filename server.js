@@ -3215,7 +3215,7 @@ app.delete("/gestion/eliminar-paciente/:id", async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA: ACTUALIZAR PACIENTE (COMPLETO) ---
+// --- RUTA: ACTUALIZAR PACIENTE (COMPLETO - FASE 3C) ---
 // -----------------------------------------------------------
 app.put("/gestion/actualizar-paciente-full", async (req, res) => {
   const { 
@@ -3229,26 +3229,60 @@ app.put("/gestion/actualizar-paciente-full", async (req, res) => {
     const sql = `
       UPDATE paciente
       SET 
-        nombre = $1, edad = $2, fecha_nac = $3, entidad_fed = $4,
-        curp = $5, domicilio = $6, cp = $7, telefono = $8,
-        sexo = $9, edo_civil = $10, escolaridad = $11, ref_medica = $12,
-        servicio = $13, motivo_estudio = $14, es_estimulacion_temprana = $15,
+        nombre = $1, 
+        edad = $2, 
+        fecha_nac = $3, 
+        entidad_fed = $4,
+        curp = $5, 
+        domicilio = $6, 
+        cp = $7, 
+        telefono = $8,
+        sexo = $9, 
+        edo_civil = $10, 
+        escolaridad = $11, 
+        ref_medica = $12,
+        servicio = $13, 
+        motivo_estudio = $14, 
+        es_estimulacion_temprana = $15,
         num_programa_actual = $16
       WHERE id_paciente = $17
     `;
     
-    await pool.query(sql, [
+    const result = await pool.query(sql, [
       nombre, edad, fecha_nac, entidad_fed, curp, 
       domicilio, cp, telefono, sexo, edo_civil, escolaridad, 
       ref_medica, servicio, motivo_estudio, es_estimulacion_temprana,
       num_programa_actual, id_paciente
     ]);
     
+    // 🛡️ VALIDACIÓN EXTRA: ¿Se actualizó algo?
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "No se encontró el ID del paciente." });
+    }
+
     res.json({ message: "Expediente actualizado correctamente" });
 
   } catch (error) {
     console.error("🔥 Error actualizando expediente completo:", error);
-    res.status(500).json({ error: "No se pudo actualizar la información." });
+    res.status(500).json({ error: "No se pudo actualizar la información en la base de datos." });
+  }
+});
+
+// -----------------------------------------------------------
+// --- RUTA: OBTENER PERFIL COMPLETO DE UN PACIENTE ---
+// -----------------------------------------------------------
+app.get("/gestion/paciente-detalle/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query("SELECT * FROM paciente WHERE id_paciente = $1", [id]);
+    if (result.rows.length > 0) {
+      res.json(result.rows[0]);
+    } else {
+      res.status(404).json({ error: "Paciente no encontrado" });
+    }
+  } catch (error) {
+    console.error("🔥 Error obteniendo detalle:", error);
+    res.status(500).json({ error: "Error de servidor" });
   }
 });
 ///////////////////////////////////////////

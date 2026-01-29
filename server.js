@@ -3215,14 +3215,13 @@ app.delete("/gestion/eliminar-paciente/:id", async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA: ACTUALIZAR DATOS GENERALES DEL PACIENTE ---
+// --- RUTA: ACTUALIZAR PACIENTE (COMPLETO) ---
 // -----------------------------------------------------------
-app.put("/gestion/actualizar-paciente", async (req, res) => {
+app.put("/gestion/actualizar-paciente-full", async (req, res) => {
   const { 
-    id_paciente, 
-    nombre, 
-    telefono, 
-    domicilio, 
+    id_paciente, nombre, edad, fecha_nac, entidad_fed, curp, 
+    domicilio, cp, telefono, sexo, edo_civil, escolaridad, 
+    ref_medica, servicio, motivo_estudio, es_estimulacion_temprana,
     num_programa_actual 
   } = req.body;
 
@@ -3230,23 +3229,28 @@ app.put("/gestion/actualizar-paciente", async (req, res) => {
     const sql = `
       UPDATE paciente
       SET 
-        nombre = $1,
-        telefono = $2,
-        domicilio = $3,
-        num_programa_actual = $4
-      WHERE id_paciente = $5
+        nombre = $1, edad = $2, fecha_nac = $3, entidad_fed = $4,
+        curp = $5, domicilio = $6, cp = $7, telefono = $8,
+        sexo = $9, edo_civil = $10, escolaridad = $11, ref_medica = $12,
+        servicio = $13, motivo_estudio = $14, es_estimulacion_temprana = $15,
+        num_programa_actual = $16
+      WHERE id_paciente = $17
     `;
     
-    await pool.query(sql, [nombre, telefono, domicilio, num_programa_actual, id_paciente]);
+    await pool.query(sql, [
+      nombre, edad, fecha_nac, entidad_fed, curp, 
+      domicilio, cp, telefono, sexo, edo_civil, escolaridad, 
+      ref_medica, servicio, motivo_estudio, es_estimulacion_temprana,
+      num_programa_actual, id_paciente
+    ]);
     
-    res.json({ message: "Datos actualizados correctamente" });
+    res.json({ message: "Expediente actualizado correctamente" });
 
   } catch (error) {
-    console.error("🔥 Error actualizando paciente:", error);
+    console.error("🔥 Error actualizando expediente completo:", error);
     res.status(500).json({ error: "No se pudo actualizar la información." });
   }
 });
-
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
 // ---------------------------

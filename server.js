@@ -3214,6 +3214,39 @@ app.delete("/gestion/eliminar-paciente/:id", async (req, res) => {
   }
 });
 
+// -----------------------------------------------------------
+// --- RUTA: ACTUALIZAR DATOS GENERALES DEL PACIENTE ---
+// -----------------------------------------------------------
+app.put("/gestion/actualizar-paciente", async (req, res) => {
+  const { 
+    id_paciente, 
+    nombre, 
+    telefono, 
+    domicilio, 
+    num_programa_actual 
+  } = req.body;
+
+  try {
+    const sql = `
+      UPDATE paciente
+      SET 
+        nombre = $1,
+        telefono = $2,
+        domicilio = $3,
+        num_programa_actual = $4
+      WHERE id_paciente = $5
+    `;
+    
+    await pool.query(sql, [nombre, telefono, domicilio, num_programa_actual, id_paciente]);
+    
+    res.json({ message: "Datos actualizados correctamente" });
+
+  } catch (error) {
+    console.error("🔥 Error actualizando paciente:", error);
+    res.status(500).json({ error: "No se pudo actualizar la información." });
+  }
+});
+
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
 // ---------------------------

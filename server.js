@@ -3060,10 +3060,11 @@ app.get("/cargas-trabajo/detalle", async (req, res) => {
 ///////////////////////////////////////////
 
 // -----------------------------------------------------------
-// --- RUTA: GESTIÓN GLOBAL - CASO DE PACIENTES (Caseload) ---
+// --- RUTA: GESTIÓN GLOBAL - CASELOAD AGRUPADO ---
 // -----------------------------------------------------------
 app.get("/gestion/pacientes-activos-agrupados", async (req, res) => {
   try {
+    // 1. OBTENER DATOS PLANOS (La materia prima)
     const sql = `
       SELECT DISTINCT ON (p.id_paciente, per.id_personal)
         per.id_personal,
@@ -3072,9 +3073,11 @@ app.get("/gestion/pacientes-activos-agrupados", async (req, res) => {
         
         p.id_paciente,
         p.nombre as nombre_paciente,
-        p.num_programa_actual,   -- <--- ✅ AQUÍ ESTÁ EL NIVEL QUE PEDISTE
+        p.num_programa_actual, 
         p.telefono,
-        p.fecha_registro
+        p.fecha_registro,
+        p.domicilio,     -- Agregado por si acaso
+        p.curp           -- Agregado por si acaso
         
       FROM citas c
       JOIN paciente p ON c.id_paciente = p.id_paciente
@@ -3082,22 +3085,70 @@ app.get("/gestion/pacientes-activos-agrupados", async (req, res) => {
       
       WHERE 
         p.estatus_paciente = 'Activo'
-        AND c.fecha >= CURRENT_DATE -- Solo tratamientos vigentes
-        AND per.funcion NOT ILIKE '%recepcion%' -- Filtramos admins
+        AND c.fecha >= CURRENT_DATE -- Solo pacientes con citas vigentes o futuras
+        AND per.funcion NOT ILIKE '%recepcion%'
         AND per.funcion NOT ILIKE '%admin%'
 
       ORDER BY p.id_paciente, per.id_personal, c.fecha DESC;
     `;
     
     const result = await pool.query(sql);
-    res.json(result.rows);
+
+    // 2. LÓGICA DE AGRUPACIÓN (El secreto para que funcione el Frontend)
+    // Convertimos la lista plana en: Áreas -> Terapeutas -> Pacientes
+    const areasMap = {};
+
+    result.rows.forEach(row => {
+      const area = row.area_terapeuta || 'SIN ÁREA';
+      const idTerapeuta = row.id_personal;
+
+      // A) Si no existe el Área, la creamos
+      if (!areasMap[area]) {
+        areasMap[area] = {
+          nombre_area: area,
+          terapeutas: [] // Lista de terapeutas en esta área
+        };
+      }
+
+      // B) Buscamos si el terapeuta ya existe en esa área
+      let terapeutaObj = areasMap[area].terapeutas.find(t => t.id_personal === idTerapeuta);
+
+      // Si no existe, lo creamos
+      if (!terapeutaObj) {
+        terapeutaObj = {
+          id_personal: row.id_personal,
+          nombre: row.nombre_terapeuta,
+          pacientes: [] // Lista de pacientes de este terapeuta
+        };
+        areasMap[area].terapeutas.push(terapeutaObj);
+      }
+
+      // C) AGREGAMOS AL PACIENTE (AQUÍ ESTÁ LA SOLUCIÓN CLAVE 🔑)
+      // Inyectamos id_personal dentro del objeto del paciente
+      terapeutaObj.pacientes.push({
+        id_paciente: row.id_paciente,
+        nombre_paciente: row.nombre_paciente, // Frontend puede esperar 'nombre' o 'nombre_paciente'
+        nombre: row.nombre_paciente,          // Ponemos ambos por seguridad
+        num_programa_actual: row.num_programa_actual,
+        telefono: row.telefono,
+        
+        // 👇 ESTOS SON LOS DATOS QUE FALTABAN PARA EL GESTOR DE HORARIOS 👇
+        id_personal: row.id_personal, 
+        nombre_terapeuta: row.nombre_terapeuta
+        // 👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆
+      });
+    });
+
+    // 3. Convertimos el Mapa a Array para que Flutter lo lea
+    const respuestaFinal = Object.values(areasMap);
+
+    res.json(respuestaFinal);
 
   } catch (error) {
-    console.error("🔥 Error en Caseload Global:", error);
+    console.error("🔥 Error en Caseload Global Agrupado:", error);
     res.status(500).json([]);
   }
 });
-
 // -----------------------------------------------------------
 // --- RUTA: BUSCADOR GLOBAL INTELIGENTE ---
 // -----------------------------------------------------------

@@ -3293,17 +3293,24 @@ app.get("/gestion/paciente-detalle/:id", async (req, res) => {
 // -----------------------------------------------------------
 // --- RUTA: GUARDAR HORARIO EN BLOQUE (EL CIRUJANO) 📅 ---
 // -----------------------------------------------------------
+// -----------------------------------------------------------
+// --- RUTA: GUARDAR HORARIO EN BLOQUE (CORREGIDA Y BLINDADA) ---
+// -----------------------------------------------------------
 app.post("/gestion/guardar-horario-bloque", async (req, res) => {
-  const { id_paciente, id_personal, citas_futuras, num_programa } = req.body;
+  // 1. RECIBIR LOS DATOS COMPLETOS
+  const { id_paciente, id_personal, citas_futuras, num_programa, servicio_area } = req.body;
   
   const client = await pool.connect();
 
   try {
-    await client.query('BEGIN');
+    await client.query('BEGIN'); // Iniciar Transacción
 
-    // 1. LIMPIEZA QUIRÚRGICA:
-    // Borramos solo las citas FUTURAS de este paciente con ESTE terapeuta.
-    // (Respetamos el historial pasado y citas con otros doctores)
+    // 🕵️‍♂️ VALIDACIÓN DE SEGURIDAD
+    if (!id_personal) throw new Error("Falta el ID del Personal");
+
+    // 2. LIMPIEZA QUIRÚRGICA (DELETE)
+    // Borramos las citas FUTURAS de este paciente CON ESTE TERAPEUTA.
+    // Al usar 'id_personal', ya no borraremos duplicados huérfanos, sino las correctas.
     const deleteSql = `
       DELETE FROM citas 
       WHERE id_paciente = $1 
@@ -3313,33 +3320,34 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
     `;
     await client.query(deleteSql, [id_paciente, id_personal]);
 
-    // 2. INSERCIÓN MASIVA:
-    // Insertamos la nueva lista de citas futuras
+    // 3. INSERCIÓN MASIVA (INSERT)
+    // Ahora incluimos 'servicio_area' en la inserción
     const insertSql = `
       INSERT INTO citas (
         id_paciente, id_personal, fecha, hora_inicio, hora_fin, 
-        num_programa, estatus, tipo_cita, asistencia
-      ) VALUES ($1, $2, $3, $4, $5, $6, 'Agendada', 'A', 0)
+        num_programa, estatus, tipo_cita, asistencia, servicio_area
+      ) VALUES ($1, $2, $3, $4, $5, $6, 'Agendada', 'A', 0, $7)
     `;
 
     for (const cita of citas_futuras) {
       await client.query(insertSql, [
         id_paciente,
         id_personal,
-        cita.fecha,       // Viene en formato ISO desde Flutter
+        cita.fecha,
         cita.hora_inicio,
         cita.hora_fin,
-        num_programa
+        num_programa,
+        servicio_area || 'Consulta Externa' // Fallback en backend también
       ]);
     }
 
-    await client.query('COMMIT');
+    await client.query('COMMIT'); // Confirmar cambios
     res.json({ message: "Horario actualizado correctamente" });
 
   } catch (error) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK'); // Deshacer si falla
     console.error("🔥 Error guardando bloque:", error);
-    res.status(500).json({ error: "Error al actualizar el horario." });
+    res.status(500).json({ error: "Error al actualizar el horario: " + error.message });
   } finally {
     client.release();
   }

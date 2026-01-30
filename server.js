@@ -3285,6 +3285,61 @@ app.get("/gestion/paciente-detalle/:id", async (req, res) => {
     res.status(500).json({ error: "Error de servidor" });
   }
 });
+
+// -----------------------------------------------------------
+// --- RUTA: GUARDAR HORARIO EN BLOQUE (EL CIRUJANO) 📅 ---
+// -----------------------------------------------------------
+app.post("/gestion/guardar-horario-bloque", async (req, res) => {
+  const { id_paciente, id_personal, citas_futuras, num_programa } = req.body;
+  
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // 1. LIMPIEZA QUIRÚRGICA:
+    // Borramos solo las citas FUTURAS de este paciente con ESTE terapeuta.
+    // (Respetamos el historial pasado y citas con otros doctores)
+    const deleteSql = `
+      DELETE FROM citas 
+      WHERE id_paciente = $1 
+        AND id_personal = $2 
+        AND fecha >= CURRENT_DATE
+        AND estatus != 'Cancelada'
+    `;
+    await client.query(deleteSql, [id_paciente, id_personal]);
+
+    // 2. INSERCIÓN MASIVA:
+    // Insertamos la nueva lista de citas futuras
+    const insertSql = `
+      INSERT INTO citas (
+        id_paciente, id_personal, fecha, hora_inicio, hora_fin, 
+        num_programa, estatus, tipo_cita, asistencia
+      ) VALUES ($1, $2, $3, $4, $5, $6, 'Agendada', 'A', 0)
+    `;
+
+    for (const cita of citas_futuras) {
+      await client.query(insertSql, [
+        id_paciente,
+        id_personal,
+        cita.fecha,       // Viene en formato ISO desde Flutter
+        cita.hora_inicio,
+        cita.hora_fin,
+        num_programa
+      ]);
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: "Horario actualizado correctamente" });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error("🔥 Error guardando bloque:", error);
+    res.status(500).json({ error: "Error al actualizar el horario." });
+  } finally {
+    client.release();
+  }
+});
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
 // ---------------------------

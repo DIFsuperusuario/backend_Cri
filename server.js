@@ -3060,12 +3060,10 @@ app.get("/cargas-trabajo/detalle", async (req, res) => {
 ///////////////////////////////////////////
 
 // -----------------------------------------------------------
-// --- RUTA: GESTIÓN GLOBAL - LISTA PLANA CON ID_PERSONAL ---
+// --- RUTA: GESTIÓN GLOBAL - LISTA BLINDADA ---
 // -----------------------------------------------------------
 app.get("/gestion/pacientes-activos-agrupados", async (req, res) => {
   try {
-    // Usamos esta consulta para traer la lista tal cual la espera tu ListView,
-    // pero asegurándonos de traer el id_personal para que el botón funcione.
     const sql = `
       SELECT DISTINCT ON (p.id_paciente)
         p.id_paciente,
@@ -3076,28 +3074,33 @@ app.get("/gestion/pacientes-activos-agrupados", async (req, res) => {
         p.domicilio,
         p.curp,
         
-        -- 👇 DATOS CLAVE PARA EL GESTOR DE HORARIOS 👇
-        per.id_personal,
-        per.nombre as nombre_terapeuta,
-        per.funcion as area_terapeuta
-        -- 👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆👆
+        -- 🛡️ BLINDAJE DE DATOS:
+        -- Usamos alias únicos para que nadie los sobrescriba
+        per.id_personal AS id_personal_asignado,  
+        per.nombre AS nombre_terapeuta_asignado,
+        per.funcion AS area_asignada
 
       FROM citas c
-      JOIN paciente p ON c.id_paciente = p.id_paciente
-      JOIN personal per ON c.id_personal = per.id_personal
+      -- Usamos INNER JOIN. Si no tiene terapeuta, no sale en la lista (evita nulos)
+      INNER JOIN paciente p ON c.id_paciente = p.id_paciente
+      INNER JOIN personal per ON c.id_personal = per.id_personal
       
       WHERE 
         p.estatus_paciente = 'Activo'
         AND c.fecha >= CURRENT_DATE 
+        AND c.estatus != 'Cancelada'
         AND per.funcion NOT ILIKE '%recepcion%'
         AND per.funcion NOT ILIKE '%admin%'
 
-      ORDER BY p.id_paciente, c.fecha DESC; -- Priorizamos la cita más reciente para sacar el terapeuta
+      -- ⚠️ IMPORTANTE: Ordenamos por fecha DESC para agarrar al terapeuta ACTUAL
+      ORDER BY p.id_paciente, c.fecha DESC; 
     `;
     
     const result = await pool.query(sql);
     
-    // Devolvemos la lista plana directa, sin agrupar por áreas
+    // Debug en consola para que veas si está saliendo el dato
+    // console.log("Ejemplo de datos:", result.rows[0]); 
+    
     res.json(result.rows);
 
   } catch (error) {

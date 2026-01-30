@@ -3159,6 +3159,7 @@ app.get("/gestion/citas-paciente/:id", async (req, res) => {
       SELECT 
         c.id_cita, 
         c.fecha, 
+        c.hora_inicio AS hora,
         c.hora_inicio, 
         c.hora_fin, 
         c.estatus,

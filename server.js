@@ -3060,7 +3060,7 @@ app.get("/cargas-trabajo/detalle", async (req, res) => {
 ///////////////////////////////////////////
 
 // -----------------------------------------------------------
-// --- RUTA: GESTIÓN GLOBAL - LISTA BLINDADA ---
+// --- RUTA: GESTIÓN GLOBAL - CORRECCIÓN DE AGRUPAMIENTO ---
 // -----------------------------------------------------------
 app.get("/gestion/pacientes-activos-agrupados", async (req, res) => {
   try {
@@ -3074,14 +3074,15 @@ app.get("/gestion/pacientes-activos-agrupados", async (req, res) => {
         p.domicilio,
         p.curp,
         
-        -- 🛡️ BLINDAJE DE DATOS:
-        -- Usamos alias únicos para que nadie los sobrescriba
-        per.id_personal AS id_personal_asignado,  
-        per.nombre AS nombre_terapeuta_asignado,
-        per.funcion AS area_asignada
+        -- ✅ CORRECCIÓN CLAVE: 
+        -- Regresamos al nombre original 'area_terapeuta' para que Flutter sepa agruparlos.
+        per.funcion AS area_terapeuta, 
+        
+        -- ✅ Y mantenemos el ID para el botón del "Cirujano":
+        per.id_personal,
+        per.nombre AS nombre_terapeuta
 
       FROM citas c
-      -- Usamos INNER JOIN. Si no tiene terapeuta, no sale en la lista (evita nulos)
       INNER JOIN paciente p ON c.id_paciente = p.id_paciente
       INNER JOIN personal per ON c.id_personal = per.id_personal
       
@@ -3092,15 +3093,11 @@ app.get("/gestion/pacientes-activos-agrupados", async (req, res) => {
         AND per.funcion NOT ILIKE '%recepcion%'
         AND per.funcion NOT ILIKE '%admin%'
 
-      -- ⚠️ IMPORTANTE: Ordenamos por fecha DESC para agarrar al terapeuta ACTUAL
-      ORDER BY p.id_paciente, c.fecha DESC; 
+      -- Ordenamos por fecha DESC para asegurar que tomamos la asignación más reciente
+      ORDER BY p.id_paciente, c.fecha DESC;
     `;
     
     const result = await pool.query(sql);
-    
-    // Debug en consola para que veas si está saliendo el dato
-    // console.log("Ejemplo de datos:", result.rows[0]); 
-    
     res.json(result.rows);
 
   } catch (error) {

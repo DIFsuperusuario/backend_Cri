@@ -1566,30 +1566,36 @@ app.get("/programa-paciente", async (req, res) => {
 // -----------------------------------------------------------
 // --- RUTA: ACTUALIZAR ASISTENCIA, PAGO Y TIPO DE PACIENTE ---
 // -----------------------------------------------------------
+// -----------------------------------------------------------
+// --- RUTA MAESTRA: COBRO + ASISTENCIA + TIPO + NOTA ---
+// -----------------------------------------------------------
 app.patch('/actualizar-asistencia', async (req, res) => {
-  // Recibimos los datos desde Flutter
-  const { id_cita, asistencia, monto_pago, tipo_paciente } = req.body;
+  // 1. Recibimos TODOS los datos (Igual que antes + observaciones)
+  const { id_cita, asistencia, monto_pago, tipo_paciente, observaciones } = req.body;
 
-  // Validación básica
+  // Validación básica (Igual que antes)
   if (!id_cita || !asistencia) {
     return res.status(400).json({ error: "Faltan datos obligatorios" });
   }
 
   const client = await pool.connect();
   try {
-    await client.query('BEGIN'); // Iniciamos una transacción (todo o nada)
+    await client.query('BEGIN'); // Inicio de la transacción
 
-    // 1. ACTUALIZAR LA CITA (Asistencia y Pago)
-    // ------------------------------------------------------
+    // ======================================================
+    // ✅ PARTE 1: TU CÓDIGO ORIGINAL (INTACTO)
+    // Actualizamos Asistencia y Dinero en la tabla CITAS
+    // ======================================================
     const sqlCita = `
       UPDATE citas 
       SET 
         asistencia = $1,
         pago = $2
       WHERE id_cita = $3
-      RETURNING id_paciente; -- Obtenemos el ID del paciente para usarlo abajo
+      RETURNING id_paciente; -- Importante para saber de quién es
     `;
-    // Aseguramos que si monto_pago es null, guarde 0
+    
+    // Tu lógica original para asegurar que el pago sea número
     const montoFinal = monto_pago || 0;
     
     const resCita = await client.query(sqlCita, [asistencia, montoFinal, id_cita]);
@@ -1600,8 +1606,10 @@ app.patch('/actualizar-asistencia', async (req, res) => {
 
     const idPaciente = resCita.rows[0].id_paciente;
 
-    // 2. ACTUALIZAR EL TIPO DE PACIENTE (Si se envió)
-    // ------------------------------------------------------
+    // ======================================================
+    // ✅ PARTE 2: TU CÓDIGO ORIGINAL (INTACTO)
+    // Actualizamos Tipo de Paciente (si lo envían)
+    // ======================================================
     if (tipo_paciente && idPaciente) {
       const sqlPaciente = `
         UPDATE paciente
@@ -1611,13 +1619,42 @@ app.patch('/actualizar-asistencia', async (req, res) => {
       await client.query(sqlPaciente, [tipo_paciente, idPaciente]);
     }
 
-    await client.query('COMMIT'); // Guardamos cambios
-    res.json({ message: "Asistencia, cobro y tipo de paciente actualizados" });
+    // ======================================================
+    // 🆕 PARTE 3: LO NUEVO (EL COMENTARIO)
+    // Esto se manda a historial_consultas sin tocar lo demás
+    // ======================================================
+    if (observaciones !== undefined) {
+      
+      // A) Revisamos si ya existe para no duplicar error
+      const checkSql = `SELECT id_historial FROM historial_consultas WHERE id_cita = $1`;
+      const checkResult = await client.query(checkSql, [id_cita]);
+
+      if (checkResult.rowCount > 0) {
+        // Opción A: UPDATE (Si ya existía nota)
+        const updateHistorial = `
+          UPDATE historial_consultas 
+          SET observaciones = $1 
+          WHERE id_cita = $2
+        `;
+        await client.query(updateHistorial, [observaciones, id_cita]);
+      } else {
+        // Opción B: INSERT (Si es nota nueva)
+        // Usamos id_cita e idPaciente (que sacamos en la Parte 1)
+        const insertHistorial = `
+          INSERT INTO historial_consultas (id_cita, id_paciente, observaciones)
+          VALUES ($1, $2, $3)
+        `;
+        await client.query(insertHistorial, [id_cita, idPaciente, observaciones]);
+      }
+    }
+
+    await client.query('COMMIT'); // Guardamos TODO junto
+    res.json({ message: "Asistencia, Cobro y Nota guardados correctamente" });
 
   } catch (error) {
-    await client.query('ROLLBACK'); // Si algo falla, deshacemos todo
-    console.error("Error en actualizar-asistencia:", error);
-    res.status(500).json({ error: "Error al actualizar" });
+    await client.query('ROLLBACK'); // Si falla algo, se cancela todo (seguridad)
+    console.error("🔥 Error en actualizar-asistencia:", error);
+    res.status(500).json({ error: "Error: " + error.message });
   } finally {
     client.release();
   }
@@ -3405,6 +3442,7 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
     client.release();
   }
 });
+
 // -----------------------------------------------------------
 // --- RUTA FINAL: ESQUEMA ESTRICTO (SOLO 3 CAMPOS) ---
 // -----------------------------------------------------------

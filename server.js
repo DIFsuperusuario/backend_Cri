@@ -3297,7 +3297,6 @@ app.get("/gestion/paciente-detalle/:id", async (req, res) => {
 // --- RUTA: GUARDAR HORARIO EN BLOQUE (CORREGIDA Y BLINDADA) ---
 // -----------------------------------------------------------
 app.post("/gestion/guardar-horario-bloque", async (req, res) => {
-  // 1. RECIBIR LOS DATOS COMPLETOS
   const { id_paciente, id_personal, citas_futuras, num_programa, servicio_area } = req.body;
   
   const client = await pool.connect();
@@ -3305,54 +3304,107 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
   try {
     await client.query('BEGIN'); // Iniciar Transacción
 
-    // 🕵️‍♂️ VALIDACIÓN DE SEGURIDAD
-    if (!id_personal) throw new Error("Falta el ID del Personal");
-
-    // 2. LIMPIEZA QUIRÚRGICA (DELETE)
-    // Borramos las citas FUTURAS de este paciente CON ESTE TERAPEUTA.
-    // Al usar 'id_personal', ya no borraremos duplicados huérfanos, sino las correctas.
-    const deleteSql = `
-      DELETE FROM citas 
+    // 1. OBTENER LAS CITAS ACTUALES DE LA BD
+    // Traemos ID, FECHA y HORA para comparar
+    const sqlTraerActuales = `
+      SELECT id_cita, fecha, hora_inicio 
+      FROM citas 
       WHERE id_paciente = $1 
         AND id_personal = $2 
         AND fecha >= CURRENT_DATE
         AND estatus != 'Cancelada'
     `;
-    await client.query(deleteSql, [id_paciente, id_personal]);
+    const resultadoActuales = await client.query(sqlTraerActuales, [id_paciente, id_personal]);
+    const citasEnBaseDatos = resultadoActuales.rows;
 
-    // 3. INSERCIÓN MASIVA (INSERT)
-    // Ahora incluimos 'servicio_area' en la inserción
-    const insertSql = `
-      INSERT INTO citas (
-        id_paciente, id_personal, fecha, hora_inicio, hora_fin, 
-        num_programa, estatus, tipo_cita, asistencia, servicio_area
-      ) VALUES ($1, $2, $3, $4, $5, $6, 'Agendada', 'A', 0, $7)
-    `;
+    // Arrays para organizar el trabajo
+    const idsParaMantener = []; // Aquí guardaremos los IDs que NO se deben borrar
+    
+    // 2. RECORRER LO QUE MANDA EL FRONTEND (La verdad absoluta)
+    for (const citaNueva of citas_futuras) {
+      
+      // Normalizamos la fecha del Frontend (YYYY-MM-DD)
+      const fechaNuevaStr = new Date(citaNueva.fecha).toISOString().split('T')[0]; 
+      
+      // BUSCAMOS EN LA BD: ¿Existe ya una cita en ESTA FECHA?
+      const citaExistente = citasEnBaseDatos.find(dbCita => {
+        const fechaDBStr = new Date(dbCita.fecha).toISOString().split('T')[0];
+        return fechaDBStr === fechaNuevaStr; // <--- SOLO COMPARAMOS FECHA
+      });
 
-    for (const cita of citas_futuras) {
-      await client.query(insertSql, [
-        id_paciente,
-        id_personal,
-        cita.fecha,
-        cita.hora_inicio,
-        cita.hora_fin,
-        num_programa,
-        servicio_area || 'Consulta Externa' // Fallback en backend también
-      ]);
+      if (citaExistente) {
+        // --- CASO A: YA EXISTE LA FECHA (UPDATE) ---
+        // Protegemos este ID para que no se borre al final
+        idsParaMantener.push(citaExistente.id_cita);
+
+        // Verificamos si cambió la hora
+        const horaDB = citaExistente.hora_inicio.substring(0, 5); // "08:00"
+        const horaNueva = citaNueva.hora_inicio.substring(0, 5);  // "09:00"
+
+        if (horaDB !== horaNueva) {
+          // ¡Cambió la hora! Actualizamos solo los tiempos
+          await client.query(`
+            UPDATE citas 
+            SET hora_inicio = $1, hora_fin = $2 
+            WHERE id_cita = $3
+          `, [citaNueva.hora_inicio, citaNueva.hora_fin, citaExistente.id_cita]);
+          
+          console.log(`✏️ Actualizada hora cita ID ${citaExistente.id_cita}`);
+        } else {
+          // La hora es igual, no hacemos nada (pero ya guardamos el ID para no borrarlo)
+        }
+
+      } else {
+        // --- CASO B: NO EXISTE LA FECHA (INSERT) ---
+        const insertSql = `
+          INSERT INTO citas (
+            id_paciente, id_personal, fecha, hora_inicio, hora_fin, 
+            num_programa, estatus, tipo_cita, asistencia, servicio_area
+          ) VALUES ($1, $2, $3, $4, $5, $6, 'Agendada', 'A', 0, $7)
+        `;
+        await client.query(insertSql, [
+            id_paciente,
+            id_personal,
+            citaNueva.fecha,
+            citaNueva.hora_inicio,
+            citaNueva.hora_fin,
+            num_programa,
+            servicio_area || 'Consulta Externa'
+        ]);
+        console.log(`✨ Nueva cita creada para ${fechaNuevaStr}`);
+      }
     }
 
-    await client.query('COMMIT'); // Confirmar cambios
-    res.json({ message: "Horario actualizado correctamente" });
+    // 3. BORRADO FINAL (LIMPIEZA)
+    // Borramos solo las citas de la BD que NO entraron en la lista "idsParaMantener"
+    // Esto significa que el usuario desmarcó esas fechas en el calendario.
+    
+    let sqlDelete = `
+        DELETE FROM citas 
+        WHERE id_paciente = $1 
+          AND id_personal = $2 
+          AND fecha >= CURRENT_DATE
+          AND estatus != 'Cancelada'
+    `;
+
+    if (idsParaMantener.length > 0) {
+      // "Borra todo EXCEPTO las que acabamos de validar/actualizar"
+      sqlDelete += ` AND id_cita NOT IN (${idsParaMantener.join(',')})`;
+    }
+
+    await client.query(sqlDelete, [id_paciente, id_personal]);
+
+    await client.query('COMMIT');
+    res.json({ message: "Horario sincronizado correctamente" });
 
   } catch (error) {
-    await client.query('ROLLBACK'); // Deshacer si falla
+    await client.query('ROLLBACK');
     console.error("🔥 Error guardando bloque:", error);
-    res.status(500).json({ error: "Error al actualizar el horario: " + error.message });
+    res.status(500).json({ error: "Error al actualizar: " + error.message });
   } finally {
     client.release();
   }
 });
-
 // -----------------------------------------------------------
 // --- RUTA FINAL: ESQUEMA ESTRICTO (SOLO 3 CAMPOS) ---
 // -----------------------------------------------------------

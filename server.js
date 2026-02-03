@@ -3354,8 +3354,7 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA FINAL: AJUSTADA A TU ESQUEMA EXACTO ---
-// --- Campos: id_historial, id_cita, id_paciente, observaciones ---
+// --- RUTA FINAL: ESQUEMA ESTRICTO (SOLO 3 CAMPOS) ---
 // -----------------------------------------------------------
 app.patch("/editar-cita-historial", async (req, res) => {
   const { id_cita, asistencia, observacion } = req.body;
@@ -3363,20 +3362,18 @@ app.patch("/editar-cita-historial", async (req, res) => {
   const client = await pool.connect();
   
   try {
-    await client.query('BEGIN'); // 1. Iniciamos operación segura
+    await client.query('BEGIN'); 
 
-    // PASO A: Actualizamos la asistencia en la tabla 'CITAS'
+    // 1. CITA: Actualizar asistencia
     const sqlCita = `UPDATE citas SET asistencia = $1 WHERE id_cita = $2`;
     await client.query(sqlCita, [asistencia, id_cita]);
 
-    // PASO B: Manejamos el comentario en 'HISTORIAL_CONSULTAS'
-    
-    // Verificamos si ya existe el registro
+    // 2. HISTORIAL: Actualizar o Crear comentario
     const checkSql = `SELECT id_historial FROM historial_consultas WHERE id_cita = $1`;
     const checkResult = await client.query(checkSql, [id_cita]);
 
     if (checkResult.rowCount > 0) {
-      // OPCIÓN 1: SI YA EXISTE -> ACTUALIZAMOS SOLO OBSERVACIONES
+      // A) UPDATE: Solo actualizamos observaciones
       const updateHistorial = `
         UPDATE historial_consultas 
         SET observaciones = $1 
@@ -3384,30 +3381,30 @@ app.patch("/editar-cita-historial", async (req, res) => {
       `;
       await client.query(updateHistorial, [observacion, id_cita]);
     } else {
-      // OPCIÓN 2: SI NO EXISTE -> CREAMOS UNO NUEVO
-      // Necesitamos el id_paciente de la tabla citas
+      // B) INSERT: Solo insertamos id_cita, id_paciente y observaciones
+      // (Buscamos el id_paciente primero)
       const datosCita = await client.query('SELECT id_paciente FROM citas WHERE id_cita = $1', [id_cita]);
       
       if (datosCita.rows.length > 0) {
         const { id_paciente } = datosCita.rows[0];
 
-        // 👇👇👇 CORRECCIÓN FINAL: SOLO LOS CAMPOS QUE TIENES 👇👇👇
+        // 👇 AQUÍ ESTÁ LA CORRECCIÓN FINAL 👇
+        // Solo 3 columnas. Ni una más.
         const insertHistorial = `
           INSERT INTO historial_consultas (id_cita, id_paciente, observaciones)
           VALUES ($1, $2, $3)
         `;
-        // No enviamos fecha, ni personal, ni nada extra.
         await client.query(insertHistorial, [id_cita, id_paciente, observacion]);
       }
     }
 
-    await client.query('COMMIT'); // 2. Guardamos todo
-    res.json({ message: "Cita e Historial actualizados correctamente" });
+    await client.query('COMMIT'); 
+    res.json({ message: "Guardado correctamente" });
 
   } catch (error) {
-    await client.query('ROLLBACK'); // Si falla, deshacemos
-    console.error("🔥 Error editando historial:", error);
-    res.status(500).json({ error: "Error interno: " + error.message });
+    await client.query('ROLLBACK');
+    console.error("🔥 Error:", error);
+    res.status(500).json({ error: error.message });
   } finally {
     client.release();
   }

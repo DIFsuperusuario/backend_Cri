@@ -3546,6 +3546,49 @@ app.patch("/editar-cita-historial", async (req, res) => {
     client.release();
   }
 });
+
+// -----------------------------------------------------------
+// --- RUTA: BUSCAR PERSONAL POR ÁREA (Para el Dropdown) ---
+// -----------------------------------------------------------
+app.get("/personal-por-area", async (req, res) => {
+  const { area } = req.query; // Recibimos ?area=Psicologia
+
+  // Validación simple
+  if (!area) {
+    return res.json([]); // Si no mandan área, devolvemos lista vacía
+  }
+
+  const client = await pool.connect();
+  try {
+    // Buscamos personal activo de esa área
+    // Usamos ILIKE para que no importen mayúsculas/minúsculas
+    // Asumo que tu tabla se llama 'personal' y tiene 'area_servicio' o 'cargo'
+    // Ajusta los nombres de columnas si son diferentes en tu BD.
+    const sql = `
+      SELECT id_personal, nombre, apellidos 
+      FROM personal 
+      WHERE (area_servicio ILIKE $1 OR cargo ILIKE $1)
+        AND estatus = 'Activo'
+    `;
+    
+    // El % permite búsqueda flexible (ej: '%Psicologia%')
+    const result = await client.query(sql, [`%${area}%`]);
+    
+    // Formateamos para devolver un campo "nombre_completo" bonito
+    const lista = result.rows.map(p => ({
+      id_personal: p.id_personal,
+      nombre: `${p.nombre} ${p.apellidos || ''}`.trim()
+    }));
+
+    res.json(lista);
+
+  } catch (error) {
+    console.error("Error buscando personal:", error);
+    res.status(500).json([]);
+  } finally {
+    client.release();
+  }
+});
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
 // ---------------------------

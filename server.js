@@ -667,14 +667,10 @@ app.get("/personal-info/:id", async (req, res) => {
 //////////////////////////////////////////fin entrelazaada///////////////////////////////////////////////////////////////////
 
 // -----------------------------------------------------------
-// --- RUTA: MONITOR DE BAJAS (Actualizada con Filtro de Programa) ---
-// -----------------------------------------------------------
-// -----------------------------------------------------------
-// --- RUTA: MONITOR DE BAJAS (CORREGIDA: Estructura Anidada + Observaciones) ---
+// --- RUTA: MONITOR DE BAJAS (FINAL: CON NOMBRE DE TRATANTE) ---
 // -----------------------------------------------------------
 app.get("/pacientes-con-faltas", async (req, res) => {
   const { departamento, tipo_programa } = req.query; 
-  // tipo_programa: 'tratamiento' | 'valoracion'
 
   const client = await pool.connect();
   try {
@@ -682,10 +678,8 @@ app.get("/pacientes-con-faltas", async (req, res) => {
     
     // 1. Filtro inteligente según pestaña
     if (tipo_programa === 'valoracion') {
-      // Valoración: Citas P o V que sean parte de un bloque (más de 1)
       filtroPrograma = "AND (c.tipo_cita = 'P' OR c.tipo_cita = 'V') AND c.total_val > 1";
     } else {
-      // Tratamiento: Citas tipo A
       filtroPrograma = "AND c.tipo_cita = 'A'";
     }
 
@@ -696,24 +690,28 @@ app.get("/pacientes-con-faltas", async (req, res) => {
         p.servicio,
         p.telefono,
         
+        -- 👇 NUEVO: Traemos el nombre del doctor de la tabla personal
+        per.nombre AS nombre_terapeuta,
+
         -- Datos de la Cita con Incidencia
         c.id_cita,
         c.fecha,
-        c.asistencia, -- 1, 2, 3, 5
+        c.asistencia, 
         c.tipo_cita,
         c.indice_val,
         c.total_val,
         
-        -- Observación específica de ESTA cita (si existe en historial)
+        -- Observación
         hc.observaciones
         
       FROM citas c
       JOIN paciente p ON c.id_paciente = p.id_paciente
-      -- Join para traer el comentario de la falta
+      -- 👇 NUEVO: Unimos con personal para saber quién atendía esa cita
+      LEFT JOIN personal per ON c.id_personal = per.id_personal
       LEFT JOIN historial_consultas hc ON c.id_cita = hc.id_cita
       
       WHERE 
-        c.asistencia IN (1, 2, 3, 5) -- Faltas (1,2,3) o Retardos (5)
+        c.asistencia IN (1, 2, 3, 5) 
         AND p.estatus_paciente = 'Activo'
         ${filtroPrograma}
         ${departamento ? "AND c.servicio_area = $1" : ""}
@@ -724,35 +722,33 @@ app.get("/pacientes-con-faltas", async (req, res) => {
     const params = departamento ? [departamento] : [];
     const result = await client.query(sql, params);
 
-    // 3. AGRUPAMIENTO (Transformar lista plana a Jerárquica)
-    // Flutter espera: [ { nombre: "Juan", historial: [ {fecha: "...", asistencia: 1}, ... ] } ]
-    
+    // 3. AGRUPAMIENTO
     const pacientesMap = {};
 
     result.rows.forEach(row => {
-      // Si el paciente no está en el mapa, lo creamos
       if (!pacientesMap[row.id_paciente]) {
         pacientesMap[row.id_paciente] = {
           id_paciente: row.id_paciente,
           nombre: row.nombre,
           servicio: row.servicio,
           telefono: row.telefono,
-          historial: [] // Array vacío para llenarlo
+          // 👇 NUEVO: Guardamos el nombre del terapeuta aquí
+          // (Si viene null, ponemos 'Sin Asignar')
+          nombre_terapeuta: row.nombre_terapeuta || 'Sin Asignar',
+          historial: [] 
         };
       }
 
-      // Agregamos la incidencia al historial de ese paciente
       pacientesMap[row.id_paciente].historial.push({
         id_cita: row.id_cita,
         fecha: row.fecha,
         asistencia: row.asistencia,
         tipo: row.tipo_cita,
-        observacion: row.observaciones, // <--- AQUÍ VA EL COMENTARIO
+        observacion: row.observaciones,
         info_val: row.total_val > 1 ? `(${row.indice_val}/${row.total_val})` : ""
       });
     });
 
-    // Convertimos el mapa a array para enviarlo
     res.json(Object.values(pacientesMap));
 
   } catch (error) {

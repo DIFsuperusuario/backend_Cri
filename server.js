@@ -3182,12 +3182,11 @@ app.get("/gestion/buscar-paciente-global", async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA: OBTENER CITAS DE UN PACIENTE (HISTORIAL) ---
+// --- RUTA: OBTENER CITAS DE UN PACIENTE (HISTORIAL CON TIPOS) ---
 // -----------------------------------------------------------
 app.get("/gestion/citas-paciente/:id", async (req, res) => {
   const { id } = req.params;
   try {
-    // 👇 AGREGA 'c.id_personal' Y ASEGURA 'hora_fin'
     const sql = `
       SELECT 
         c.id_cita, 
@@ -3196,10 +3195,33 @@ app.get("/gestion/citas-paciente/:id", async (req, res) => {
         c.hora_inicio, 
         c.hora_fin, 
         c.estatus,
-        c.id_personal,    -- <--- ¡ESTE FALTABA!
-        per.nombre as nombre_terapeuta
+        c.id_personal,
+        per.nombre as nombre_terapeuta,
+        
+        -- 👇 1. Calculamos el ÍNDICE (Si tienes columna num_sesion, úsala)
+        COALESCE(c.num_sesion, 1) as indice_val,
+
+        -- 👇 2. Calculamos el TIPO DE CITA (Lógica de Negocio)
+        CASE 
+            -- Si es el Programa 1, es "Primera Vez" (P)
+            WHEN p.num_programa = 1 THEN 'P'
+            -- Si es una sesión baja (ej: 1, 2 o 3) de otro nivel, es "Valoración" (V)
+            WHEN c.num_sesion <= 3 THEN 'V'
+            -- Todo lo demás es "Tratamiento" (A)
+            ELSE 'A'
+        END as tipo_cita,
+
+        -- 👇 3. Calculamos el TOTAL (Para que diga "1 de 3")
+        CASE 
+            WHEN p.num_programa = 1 THEN 1 -- Primera vez es única
+            ELSE 3                         -- Valoraciones asumimos bloques de 3 (o ajusta este número)
+        END as total_val
+
       FROM citas c
       LEFT JOIN personal per ON c.id_personal = per.id_personal
+      -- 👇 NECESITAMOS ESTE JOIN PARA SABER EL NIVEL DEL PROGRAMA
+      LEFT JOIN programas p ON c.id_programa = p.id_programa 
+      
       WHERE c.id_paciente = $1
       ORDER BY c.fecha DESC, c.hora_inicio ASC
     `;

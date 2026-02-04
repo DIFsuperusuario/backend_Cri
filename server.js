@@ -3198,29 +3198,31 @@ app.get("/gestion/citas-paciente/:id", async (req, res) => {
         c.id_personal,
         per.nombre as nombre_terapeuta,
         
-        -- 👇 1. Calculamos el ÍNDICE (Si tienes columna num_sesion, úsala)
+        -- 👇 1. Índice de sesión (Si no tienes la columna 'num_sesion', pondrá 1)
         COALESCE(c.num_sesion, 1) as indice_val,
 
-        -- 👇 2. Calculamos el TIPO DE CITA (Lógica de Negocio)
+        -- 👇 2. Calculamos el TIPO DE CITA usando la tabla PACIENTES
         CASE 
-            -- Si es el Programa 1, es "Primera Vez" (P)
-            WHEN p.num_programa = 1 THEN 'P'
-            -- Si es una sesión baja (ej: 1, 2 o 3) de otro nivel, es "Valoración" (V)
-            WHEN c.num_sesion <= 3 THEN 'V'
-            -- Todo lo demás es "Tratamiento" (A)
+            -- Si el paciente está en nivel 1, es Primera Vez (P)
+            WHEN pac.num_programa_actual = 1 THEN 'P'
+            
+            -- Si es una sesión baja (1, 2 o 3) y NO es nivel 1, es Valoración (V)
+            WHEN COALESCE(c.num_sesion, 1) <= 3 THEN 'V'
+            
+            -- Todo lo demás es Tratamiento (A)
             ELSE 'A'
         END as tipo_cita,
 
-        -- 👇 3. Calculamos el TOTAL (Para que diga "1 de 3")
+        -- 👇 3. Calculamos el TOTAL
         CASE 
-            WHEN p.num_programa = 1 THEN 1 -- Primera vez es única
-            ELSE 3                         -- Valoraciones asumimos bloques de 3 (o ajusta este número)
+            WHEN pac.num_programa_actual = 1 THEN 1 
+            ELSE 3                         
         END as total_val
 
       FROM citas c
       LEFT JOIN personal per ON c.id_personal = per.id_personal
-      -- 👇 NECESITAMOS ESTE JOIN PARA SABER EL NIVEL DEL PROGRAMA
-      LEFT JOIN programas p ON c.id_programa = p.id_programa 
+      -- 👇 CORRECCIÓN: UNIMOS CON PACIENTES, NO CON PROGRAMAS
+      LEFT JOIN pacientes pac ON c.id_paciente = pac.id_paciente
       
       WHERE c.id_paciente = $1
       ORDER BY c.fecha DESC, c.hora_inicio ASC

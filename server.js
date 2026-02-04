@@ -3548,7 +3548,7 @@ app.patch("/editar-cita-historial", async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA: BUSCAR PERSONAL POR ÁREA (CORREGIDA: SOLO NOMBRE) ---
+// --- RUTA: BUSCAR PERSONAL POR ÁREA (VERSIÓN FINAL SEGÚN FOTO) ---
 // -----------------------------------------------------------
 app.get("/personal-por-area", async (req, res) => {
   const { area } = req.query; 
@@ -3557,20 +3557,21 @@ app.get("/personal-por-area", async (req, res) => {
 
   const client = await pool.connect();
   try {
-    // 👇 CAMBIO: Solo pedimos id_personal y nombre. Nada más.
+    // 👇 CORRECCIÓN: 
+    // 1. Buscamos en 'funcion' (que es la columna que tienes para el puesto)
+    // 2. Quitamos 'estatus' porque no sale en tu foto (para evitar otro error)
     const sql = `
       SELECT id_personal, nombre 
       FROM personal 
-      WHERE (area_servicio ILIKE $1 OR cargo ILIKE $1)
-        AND estatus = 'Activo'
+      WHERE funcion ILIKE $1
     `;
     
+    // El % permite que si buscas "Psicologia" encuentre "Psicologo"
     const result = await client.query(sql, [`%${area}%`]);
     
-    // Mapeamos directo
     const lista = result.rows.map(p => ({
       id_personal: p.id_personal,
-      nombre: p.nombre // Usamos lo que haya en la columna nombre
+      nombre: p.nombre 
     }));
 
     res.json(lista);

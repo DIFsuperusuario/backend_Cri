@@ -3328,27 +3328,29 @@ app.get("/gestion/paciente-detalle/:id", async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA: GUARDAR HORARIO EN BLOQUE (MASTER: CAMBIO DE TRATANTE + CIRUJANO) ---
+// --- RUTA MASTER: GUARDAR HORARIO + CAMBIO TRATANTE (FIX ZONA HORARIA) ---
 // -----------------------------------------------------------
 app.post("/gestion/guardar-horario-bloque", async (req, res) => {
-  // AHORA RECIBIMOS 'id_personal_anterior' PARA DETECTAR EL CAMBIO
   const { id_paciente, id_personal, id_personal_anterior, citas_futuras, num_programa, servicio_area } = req.body;
   
   const client = await pool.connect();
 
   try {
-    await client.query('BEGIN'); // Iniciar Transacción
+    await client.query('BEGIN');
 
-    const fechaHoy = new Date().toISOString().split('T')[0];
+    // 🇲🇽 TRUCO: Forzamos la fecha de MÉXICO para que no falle por UTC
+    // Esto asegura que 'hoy' sea hoy en tu reloj, no en el de Londres.
+    const fechaHoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    
+    console.log(`📅 Fecha corte para borrado: ${fechaHoy}`);
 
     // =====================================================================
     // CASO 1: CAMBIO DE DOCTOR (EL "CLEAN" TOTAL DEL ANTERIOR) 🧹
     // =====================================================================
-    // Si hay un doctor anterior Y es diferente al nuevo, borramos el futuro del viejo.
     if (id_personal_anterior && id_personal_anterior != id_personal) {
       console.log(`🔄 Cambio de Tratante detectado: ${id_personal_anterior} -> ${id_personal}`);
 
-      // 1. Borrar notas/historial de las citas futuras del DOCTOR VIEJO (Para evitar error FK)
+      // 1. Borrar HISTORIAL de citas futuras del viejo (Evitar FK error)
       const deleteHistorialViejo = `
         DELETE FROM historial_consultas
         WHERE id_cita IN (
@@ -3361,7 +3363,7 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
       `;
       await client.query(deleteHistorialViejo, [id_paciente, id_personal_anterior, fechaHoy]);
 
-      // 2. Borrar las citas futuras del DOCTOR VIEJO
+      // 2. Borrar CITAS futuras del viejo
       const deleteCitasViejas = `
         DELETE FROM citas 
         WHERE id_paciente = $1 
@@ -3369,19 +3371,16 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
           AND fecha >= $3::date
           AND estatus != 'Cancelada'
       `;
-      await client.query(deleteCitasViejas, [id_paciente, id_personal_anterior, fechaHoy]);
+      const resDel = await client.query(deleteCitasViejas, [id_paciente, id_personal_anterior, fechaHoy]);
       
-      // NOTA: No hacemos "continue" aquí, porque abajo el código va a insertar 
-      // las nuevas citas para el id_personal (nuevo). El flujo sigue...
+      console.log(`🗑️ Se eliminaron ${resDel.rowCount} citas del doctor anterior (ID: ${id_personal_anterior})`);
     }
 
-
     // =====================================================================
-    // CASO 2: GESTIÓN DEL DOCTOR ACTUAL (EL CIRUJANO 😷)
+    // CASO 2: GESTIÓN DEL DOCTOR NUEVO/ACTUAL (EL CIRUJANO 😷)
     // =====================================================================
-    // (Esta lógica aplica tanto si cambiamos de doctor como si mantenemos el mismo)
     
-    // A. Traemos las citas que YA existen para el DOCTOR NUEVO (o actual)
+    // A. Traemos las citas que YA existen para el DOCTOR NUEVO
     const sqlTraerActuales = `
       SELECT id_cita, fecha, hora_inicio 
       FROM citas 
@@ -3393,24 +3392,22 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
     const resultadoActuales = await client.query(sqlTraerActuales, [id_paciente, id_personal, fechaHoy]);
     const citasEnBaseDatos = resultadoActuales.rows;
 
-    const idsParaMantener = []; // IDs que sobrevivirán
+    const idsParaMantener = [];
 
-    // B. Recorremos las nuevas citas que vienen del Frontend
+    // B. Insertar o Actualizar las nuevas
     for (const citaNueva of citas_futuras) {
-      
+      // Normalizamos fecha que viene del front
       const fechaNuevaStr = new Date(citaNueva.fecha).toISOString().split('T')[0]; 
       
-      // ¿Ya existe cita ese día con este doctor?
       const citaExistente = citasEnBaseDatos.find(dbCita => {
         const fechaDBStr = new Date(dbCita.fecha).toISOString().split('T')[0];
         return fechaDBStr === fechaNuevaStr;
       });
 
       if (citaExistente) {
-        // --- YA EXISTE (UPDATE) ---
+        // UPDATE (Ya existía cita con este doctor nuevo en esa fecha)
         idsParaMantener.push(citaExistente.id_cita);
 
-        // Verificamos si cambió la hora
         const horaDB = citaExistente.hora_inicio.substring(0, 5); 
         const horaNueva = citaNueva.hora_inicio.substring(0, 5);
 
@@ -3422,7 +3419,7 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
         }
 
       } else {
-        // --- NO EXISTE (INSERT) ---
+        // INSERT (Nueva cita para el doctor nuevo)
         const insertSql = `
           INSERT INTO citas (
             id_paciente, id_personal, fecha, hora_inicio, hora_fin, 
@@ -3431,7 +3428,7 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
         `;
         await client.query(insertSql, [
             id_paciente,
-            id_personal, // El nuevo ID
+            id_personal,
             citaNueva.fecha,
             citaNueva.hora_inicio,
             citaNueva.hora_fin,
@@ -3442,18 +3439,15 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
     }
 
     // =====================================================================
-    // CASO 3: LIMPIEZA DE SOBRAS DEL MISMO DOCTOR 🗑️
+    // CASO 3: LIMPIEZA DE SOBRAS DEL DOCTOR NUEVO 🗑️
+    // (Por si desmarcaste horarios del nuevo doctor)
     // =====================================================================
-    // Si desmarcaste una casilla del doctor actual, hay que borrarla.
-    // Pero cuidado con el error FK de historial_consultas.
-
-    // 1. Construimos la condición de qué borrar (Todo lo que NO esté en idsParaMantener)
     let clausulaExclusion = "";
     if (idsParaMantener.length > 0) {
       clausulaExclusion = `AND id_cita NOT IN (${idsParaMantener.join(',')})`;
     }
 
-    // 2. PRIMERO: Borrar historial de las citas que se van a eliminar
+    // Borrar historial sobrante
     const sqlBorrarHistorialSobras = `
        DELETE FROM historial_consultas
        WHERE id_cita IN (
@@ -3467,7 +3461,7 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
     `;
     await client.query(sqlBorrarHistorialSobras, [id_paciente, id_personal, fechaHoy]);
 
-    // 3. SEGUNDO: Ahora sí, borrar las citas huerfanas
+    // Borrar citas sobrantes
     const sqlBorrarCitasSobras = `
         DELETE FROM citas 
         WHERE id_paciente = $1 
@@ -3479,12 +3473,12 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
     await client.query(sqlBorrarCitasSobras, [id_paciente, id_personal, fechaHoy]);
 
     await client.query('COMMIT');
-    res.json({ message: "Horario sincronizado y tratante actualizado correctamente" });
+    res.json({ message: "Horario y tratante actualizados correctamente" });
 
   } catch (error) {
     await client.query('ROLLBACK');
     console.error("🔥 Error guardando bloque:", error);
-    res.status(500).json({ error: "Error al actualizar: " + error.message });
+    res.status(500).json({ error: "Error: " + error.message });
   } finally {
     client.release();
   }

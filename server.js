@@ -3189,7 +3189,7 @@ app.get("/gestion/buscar-paciente-global", async (req, res) => {
 
 
 // -----------------------------------------------------------
-// --- RUTA: OBTENER CITAS DE UN PACIENTE (HISTORIAL) ---
+// --- RUTA: OBTENER CITAS (FILTRADO POR NIVEL ACTUAL) ---
 // -----------------------------------------------------------
 app.get("/gestion/citas-paciente/:id", async (req, res) => {
   const { id } = req.params;
@@ -3203,19 +3203,27 @@ app.get("/gestion/citas-paciente/:id", async (req, res) => {
         c.hora_fin, 
         c.estatus,
         c.id_personal,
-        c.asistencia, -- Por si lo usas para el check verde/rojo
+        c.asistencia, 
         
-        -- 👇 AQUÍ ESTÁN LAS 3 CLAVES PARA TUS COLORES
-        c.tipo_cita,   -- 'A', 'P', 'V'
-        c.indice_val,  -- Ej: 1
-        c.total_val,   -- Ej: 3 (Para saber si es 1 de 3)
+        -- Datos clave para colores
+        c.tipo_cita,   
+        c.indice_val,  
+        c.total_val,
+        c.num_programa, -- (Opcional) Para que veas en qué nivel está la cita
 
         per.nombre as nombre_terapeuta
       
       FROM citas c
       LEFT JOIN personal per ON c.id_personal = per.id_personal
+      -- 👇 1. AGREGAMOS ESTE JOIN PARA LEER EL NIVEL DEL PACIENTE
+      LEFT JOIN paciente pac ON c.id_paciente = pac.id_paciente
       
       WHERE c.id_paciente = $1
+
+      -- 👇 2. EL FILTRO MÁGICO
+      -- "La cita debe pertenecer al mismo programa en el que va el paciente hoy"
+      AND c.num_programa = pac.num_programa_actual
+
       ORDER BY c.fecha DESC, c.hora_inicio ASC
     `;
     

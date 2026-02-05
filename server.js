@@ -2828,17 +2828,8 @@ const query = `
   }
 });
 
-// 🔍 OBTENER PACIENTES PENDIENTES DE CITA
-// Busca pacientes en la tabla 'pacientes' que NO aparecen en la tabla 'citas'
-// 🔍 OBTENER PACIENTES PENDIENTES DE CITA (MEJORADO PARA R1 y R2)
-// 🔍 ENDPOINT: OBTENER PACIENTES PARA SALA DE ESPERA
-// 🔍 OBTENER PACIENTES PENDIENTES DE CITA
-// Regla de Oro: Si tiene CUALQUIER cita (Agendada, Pendiente o Finalizada), se va de la lista.
 // -----------------------------------------------------------
-// --- RUTA: SALA DE ESPERA (CORREGIDA: Soporta Nivel 2, 3...) ---
-// -----------------------------------------------------------
-// -----------------------------------------------------------
-// --- RUTA: SALA DE ESPERA (Lógica Temporal Inteligente) ---
+// --- RUTA: SALA DE ESPERA (LÓGICA BLINDADA NIVEL POR NIVEL) ---
 // -----------------------------------------------------------
 app.get("/pacientes/pendientes-cita", async (req, res) => {
   try {
@@ -2852,23 +2843,32 @@ app.get("/pacientes/pendientes-cita", async (req, res) => {
         FROM citas c 
         WHERE c.id_paciente = p.id_paciente 
         
-        -- 🔥 AQUÍ ESTÁ LA MAGIA (OPCIÓN B):
-        -- No miramos el 'num_programa'.
-        -- Solo miramos si tiene citas VIVAS (A futuro o sin cerrar).
-        
+        -- 👇 AQUÍ ESTÁ EL TRUCO PARA QUE FUNCIONE TU REAGENDADO:
         AND (
-             -- Caso 1: Citas agendadas a futuro (mañana, pasado...)
+             
+             -- 1. Si tiene cita A FUTURO (mañana, pasado...) -> Se esconde
+             -- (Esto aplica para cualquier nivel, si ya tiene cita mañana, no lo molestes)
              c.fecha >= CURRENT_DATE 
              
              OR 
              
-             -- Caso 2: Citas que siguen marcadas como 'PENDIENTE' o 'AGENDADA'
-             -- (aunque sean de ayer, si no las cerraron, cuentan como que ya tiene cita)
+             -- 2. Si tiene cita ABIERTA (Agendada/Pendiente) -> Se esconde
+             -- (Aunque sea de ayer, si no la has cerrado, se considera que ya tiene su turno asignado)
              UPPER(c.estatus) IN ('AGENDADA', 'PENDIENTE')
+
+             OR
+
+             -- 🔥 3. EL FILTRO DE NIVEL (Lo que arregla tu problema actual)
+             -- Si YA TIENE una cita FINALIZADA/V/IMPREVISTO...
+             -- ¡PERO SOLO SI ES DEL MISMO NIVEL EN EL QUE VA!
+             (
+                c.num_programa = p.num_programa_actual 
+                AND UPPER(c.estatus) IN ('FINALIZADA', 'V', 'IMPREVISTO', 'ASISTENCIA')
+             )
         )
         
-        -- Ignoramos explícitamente las que ya pasaron
-        AND UPPER(c.estatus) NOT IN ('FINALIZADA', 'CANCELADA', 'BAJA')
+        -- Ignoramos canceladas/bajas siempre
+        AND UPPER(c.estatus) NOT IN ('CANCELADA', 'BAJA')
       )
       ORDER BY p.fecha_registro ASC;
     `;

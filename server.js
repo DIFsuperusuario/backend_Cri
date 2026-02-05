@@ -2837,28 +2837,38 @@ const query = `
 // -----------------------------------------------------------
 // --- RUTA: SALA DE ESPERA (CORREGIDA: Soporta Nivel 2, 3...) ---
 // -----------------------------------------------------------
+// -----------------------------------------------------------
+// --- RUTA: SALA DE ESPERA (Lógica Temporal Inteligente) ---
+// -----------------------------------------------------------
 app.get("/pacientes/pendientes-cita", async (req, res) => {
   try {
     const query = `
       SELECT p.* FROM paciente p
       WHERE 
-      -- Solo queremos pacientes Activos
       p.estatus_paciente = 'Activo'
       
       AND NOT EXISTS (
-        -- 🛑 FILTRO INTELIGENTE:
-        -- Buscamos si ya tiene citas generadas PARA EL NIVEL EN EL QUE VA.
         SELECT 1 
         FROM citas c 
         WHERE c.id_paciente = p.id_paciente 
         
-        -- 🔥 LA CLAVE MAESTRA:
-        -- Si el paciente es Nivel 2, buscamos si ya tiene citas de Nivel 2.
-        -- Si NO tiene citas de Nivel 2, APARECE EN LA LISTA.
-        -- (Ignoramos las citas viejas del Nivel 1)
-        AND c.num_programa = p.num_programa_actual 
+        -- 🔥 AQUÍ ESTÁ LA MAGIA (OPCIÓN B):
+        -- No miramos el 'num_programa'.
+        -- Solo miramos si tiene citas VIVAS (A futuro o sin cerrar).
         
-        AND UPPER(c.estatus) IN ('AGENDADA', 'PENDIENTE', 'FINALIZADA')
+        AND (
+             -- Caso 1: Citas agendadas a futuro (mañana, pasado...)
+             c.fecha >= CURRENT_DATE 
+             
+             OR 
+             
+             -- Caso 2: Citas que siguen marcadas como 'PENDIENTE' o 'AGENDADA'
+             -- (aunque sean de ayer, si no las cerraron, cuentan como que ya tiene cita)
+             UPPER(c.estatus) IN ('AGENDADA', 'PENDIENTE')
+        )
+        
+        -- Ignoramos explícitamente las que ya pasaron
+        AND UPPER(c.estatus) NOT IN ('FINALIZADA', 'CANCELADA', 'BAJA')
       )
       ORDER BY p.fecha_registro ASC;
     `;

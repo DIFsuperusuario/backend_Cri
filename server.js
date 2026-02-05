@@ -3131,7 +3131,7 @@ app.get("/cargas-trabajo/detalle", async (req, res) => {
 ///////////////////////////////////////////
 
 // -----------------------------------------------------------
-// --- RUTA: GESTIÓN GLOBAL - CORRECCIÓN DE AGRUPAMIENTO ---
+// --- RUTA: GESTIÓN GLOBAL - CORRECCIÓN DEFINITIVA (MATAZOMBIS) ---
 // -----------------------------------------------------------
 app.get("/gestion/pacientes-activos-agrupados", async (req, res) => {
   try {
@@ -3145,11 +3145,7 @@ app.get("/gestion/pacientes-activos-agrupados", async (req, res) => {
         p.domicilio,
         p.curp,
         
-        -- ✅ CORRECCIÓN CLAVE: 
-        -- Regresamos al nombre original 'area_terapeuta' para que Flutter sepa agruparlos.
         per.funcion AS area_terapeuta, 
-        
-        -- ✅ Y mantenemos el ID para el botón del "Cirujano":
         per.id_personal,
         per.nombre AS nombre_terapeuta
 
@@ -3163,6 +3159,11 @@ app.get("/gestion/pacientes-activos-agrupados", async (req, res) => {
         AND c.estatus != 'Cancelada'
         AND per.funcion NOT ILIKE '%recepcion%'
         AND per.funcion NOT ILIKE '%admin%'
+
+        -- 👇👇👇 AQUÍ ESTÁ EL FILTRO MÁGICO 👇👇👇
+        -- Esto elimina las citas "Zombis" del nivel anterior.
+        -- Si el paciente es Nivel 2, las citas Nivel 1 desaparecen de esta vista.
+        AND c.num_programa = p.num_programa_actual 
 
       -- Ordenamos por fecha DESC para asegurar que tomamos la asignación más reciente
       ORDER BY p.id_paciente, c.fecha DESC;

@@ -3181,9 +3181,7 @@ app.get("/gestion/buscar-paciente-global", async (req, res) => {
   }
 });
 
-// -----------------------------------------------------------
-// --- RUTA: OBTENER CITAS DE UN PACIENTE (HISTORIAL CON TIPOS) ---
-// -----------------------------------------------------------
+
 app.get("/gestion/citas-paciente/:id", async (req, res) => {
   const { id } = req.params;
   try {

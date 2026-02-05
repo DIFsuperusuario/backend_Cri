@@ -2090,7 +2090,8 @@ app.post('/crear-programa-asignado', async (req, res) => {
     asistencia_origen, 
     tipo_cita, 
     nuevas_citas, 
-    servicio_area 
+    servicio_area,
+    num_programa // <--- 1. AGREGADO AQUÍ PARA RECIBIRLO
   } = req.body;
 
   try {
@@ -2106,8 +2107,8 @@ app.post('/crear-programa-asignado', async (req, res) => {
           asistencia = $1, 
           estatus = 'Finalizada', 
           tipo_cita = CASE 
-                        WHEN tipo_cita = 'P' THEN 'V' -- Evoluciona a Valoración
-                        ELSE tipo_cita                -- Se mantiene igual (ej. 'A')
+                        WHEN tipo_cita = 'P' THEN 'V' 
+                        ELSE tipo_cita                
                       END
         WHERE id_cita = $2
       `;
@@ -2117,22 +2118,34 @@ app.post('/crear-programa-asignado', async (req, res) => {
     // ---------------------------------------------------------
     // 2. LÓGICA DE SERVICIO Y ÁREA
     // ---------------------------------------------------------
-    let numProgramaBase = 1;
+    
+    // 👇👇👇 2. CAMBIO IMPORTANTE EN LA LÓGICA DE NIVEL 👇👇👇
+    // Si Flutter mandó el nivel (ej. 2), lo usamos. Si no, asumimos null por ahora.
+    let numProgramaBase = num_programa ? parseInt(num_programa) : null;
+    
     let servicioOriginal = 'General';
 
-    // Recuperar datos de la cita origen para mantener continuidad
+    // Recuperar datos de la cita origen (para servicio y fallback de nivel)
     if (id_cita_origen) {
       const origenRes = await pool.query(
         'SELECT num_programa, servicio_area FROM citas WHERE id_cita = $1', 
         [id_cita_origen]
       );
       if (origenRes.rows.length > 0) {
-        numProgramaBase = origenRes.rows[0].num_programa || 1;
+        // Solo si NO recibimos nivel desde Flutter, usamos el de la BD
+        if (!numProgramaBase) {
+             numProgramaBase = origenRes.rows[0].num_programa || 1;
+        }
         servicioOriginal = origenRes.rows[0].servicio_area || 'General';
       }
     }
 
-    // Prioridad de Asignación: 1. Input Front -> 2. Cita Anterior -> 3. Especialidad Dr.
+    // Si después de todo sigue nulo, el default es 1
+    if (!numProgramaBase) numProgramaBase = 1;
+
+    console.log("🎯 Nivel final a guardar:", numProgramaBase); // Log para confirmar
+
+    // Prioridad de Asignación de Servicio
     let servicioFinal = servicio_area || servicioOriginal;
 
     if (!servicioFinal || servicioFinal === 'null') {
@@ -2144,15 +2157,21 @@ app.post('/crear-programa-asignado', async (req, res) => {
     }
 
     // ---------------------------------------------------------
-    // 3. ACTUALIZAR PERFIL DEL PACIENTE (Nueva Lógica)
+    // 3. ACTUALIZAR PERFIL DEL PACIENTE
     // ---------------------------------------------------------
-    // Actualizamos el servicio en el perfil del paciente para consistencia futura
     if (servicioFinal && servicioFinal !== 'General') {
+       // 🔥 OJO: Aquí también actualizamos el num_programa_actual del paciente
+       // para que quede sincronizado en su ficha.
        await pool.query(
-         "UPDATE paciente SET servicio = $1 WHERE id_paciente = $2",
-         [servicioFinal, id_paciente]
+         "UPDATE paciente SET servicio = $1, num_programa_actual = $2 WHERE id_paciente = $3",
+         [servicioFinal, numProgramaBase, id_paciente]
        );
-       // console.log(`Pac. actualizado a: ${servicioFinal}`); // Descomentar para debug
+    } else {
+        // Si el servicio no cambia, al menos actualizamos el nivel
+        await pool.query(
+            "UPDATE paciente SET num_programa_actual = $1 WHERE id_paciente = $2",
+            [numProgramaBase, id_paciente]
+        );
     }
 
     // ---------------------------------------------------------
@@ -2167,9 +2186,6 @@ app.post('/crear-programa-asignado', async (req, res) => {
     for (let i = 0; i < nuevas_citas.length; i++) {
       const cita = nuevas_citas[i];
       
-      // Lógica de conteo:
-      // 'P' (Programada/Valoración) = Conteo normal (1 de 3, 2 de 3...)
-      // 'A' (Tratamiento/Agenda)    = Siempre 1 de 1
       const isTratamiento = (tipo_cita !== 'P');
       const indiceParaGuardar = isTratamiento ? 1 : (i + 1);
       const totalParaGuardar  = isTratamiento ? 1 : nuevas_citas.length;
@@ -2182,7 +2198,7 @@ app.post('/crear-programa-asignado', async (req, res) => {
         cita.hora_fin,
         tipo_cita, 
         servicioFinal, 
-        numProgramaBase, 
+        numProgramaBase, // <--- Aquí ya lleva el valor correcto (2, 3, etc.)
         indiceParaGuardar, 
         totalParaGuardar
       ]);
@@ -2190,7 +2206,6 @@ app.post('/crear-programa-asignado', async (req, res) => {
 
     await pool.query('COMMIT');
     
-    // Respuesta exitosa
     res.status(201).json({ 
       message: "Programa creado y paciente actualizado correctamente." 
     });

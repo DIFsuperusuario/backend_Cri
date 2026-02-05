@@ -2829,7 +2829,7 @@ const query = `
 });
 
 // -----------------------------------------------------------
-// --- RUTA: SALA DE ESPERA (LÓGICA BLINDADA NIVEL POR NIVEL) ---
+// --- RUTA: SALA DE ESPERA (CORREGIDA PARA CAMBIO DE NIVEL) ---
 // -----------------------------------------------------------
 app.get("/pacientes/pendientes-cita", async (req, res) => {
   try {
@@ -2843,32 +2843,28 @@ app.get("/pacientes/pendientes-cita", async (req, res) => {
         FROM citas c 
         WHERE c.id_paciente = p.id_paciente 
         
-        -- 👇 AQUÍ ESTÁ EL TRUCO PARA QUE FUNCIONE TU REAGENDADO:
+        AND UPPER(c.estatus) NOT IN ('CANCELADA', 'BAJA') -- Ignoramos basura
+
         AND (
-             
-             -- 1. Si tiene cita A FUTURO (mañana, pasado...) -> Se esconde
-             -- (Esto aplica para cualquier nivel, si ya tiene cita mañana, no lo molestes)
-             c.fecha >= CURRENT_DATE 
+             -- 1. SI TIENE CITA FUTURA (De hoy en adelante)
+             -- Si ya tiene reservado para mañana (aunque sea error de nivel), lo escondemos.
+             c.fecha > CURRENT_DATE 
              
              OR 
-             
-             -- 2. Si tiene cita ABIERTA (Agendada/Pendiente) -> Se esconde
-             -- (Aunque sea de ayer, si no la has cerrado, se considera que ya tiene su turno asignado)
-             UPPER(c.estatus) IN ('AGENDADA', 'PENDIENTE')
 
-             OR
-
-             -- 🔥 3. EL FILTRO DE NIVEL (Lo que arregla tu problema actual)
-             -- Si YA TIENE una cita FINALIZADA/V/IMPREVISTO...
-             -- ¡PERO SOLO SI ES DEL MISMO NIVEL EN EL QUE VA!
+             -- 2. SI TIENE ACTIVIDAD EN SU *NIVEL ACTUAL*
+             -- Aquí es donde arreglamos tu problema:
+             -- Solo nos importa si tiene citas (Pendientes, Agendadas o Finalizadas)
+             -- que COINCIDAN con el 'num_programa_actual' (ej: 2).
+             -- Si tiene citas pendientes del Nivel 1, ESTA CONDICIÓN NO SE CUMPLE
+             -- y el paciente APARECE en la lista.
              (
-                c.num_programa = p.num_programa_actual 
-                AND UPPER(c.estatus) IN ('FINALIZADA', 'V', 'IMPREVISTO', 'ASISTENCIA')
+                c.num_programa = p.num_programa_actual
+                
+                -- Opcional: Si quieres ser aun más estricto, incluye también las de hoy
+                -- c.fecha = CURRENT_DATE 
              )
         )
-        
-        -- Ignoramos canceladas/bajas siempre
-        AND UPPER(c.estatus) NOT IN ('CANCELADA', 'BAJA')
       )
       ORDER BY p.fecha_registro ASC;
     `;

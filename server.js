@@ -3182,6 +3182,9 @@ app.get("/gestion/buscar-paciente-global", async (req, res) => {
 });
 
 
+// -----------------------------------------------------------
+// --- RUTA: OBTENER CITAS DE UN PACIENTE (HISTORIAL) ---
+// -----------------------------------------------------------
 app.get("/gestion/citas-paciente/:id", async (req, res) => {
   const { id } = req.params;
   try {
@@ -3194,33 +3197,17 @@ app.get("/gestion/citas-paciente/:id", async (req, res) => {
         c.hora_fin, 
         c.estatus,
         c.id_personal,
-        per.nombre as nombre_terapeuta,
+        c.asistencia, -- Por si lo usas para el check verde/rojo
         
-        -- 👇 1. Índice de sesión (Si no tienes la columna 'num_sesion', pondrá 1)
-        COALESCE(c.num_sesion, 1) as indice_val,
+        -- 👇 AQUÍ ESTÁN LAS 3 CLAVES PARA TUS COLORES
+        c.tipo_cita,   -- 'A', 'P', 'V'
+        c.indice_val,  -- Ej: 1
+        c.total_val,   -- Ej: 3 (Para saber si es 1 de 3)
 
-        -- 👇 2. Calculamos el TIPO DE CITA usando la tabla PACIENTES
-        CASE 
-            -- Si el paciente está en nivel 1, es Primera Vez (P)
-            WHEN pac.num_programa_actual = 1 THEN 'P'
-            
-            -- Si es una sesión baja (1, 2 o 3) y NO es nivel 1, es Valoración (V)
-            WHEN COALESCE(c.num_sesion, 1) <= 3 THEN 'V'
-            
-            -- Todo lo demás es Tratamiento (A)
-            ELSE 'A'
-        END as tipo_cita,
-
-        -- 👇 3. Calculamos el TOTAL
-        CASE 
-            WHEN pac.num_programa_actual = 1 THEN 1 
-            ELSE 3                         
-        END as total_val
-
+        per.nombre as nombre_terapeuta
+      
       FROM citas c
       LEFT JOIN personal per ON c.id_personal = per.id_personal
-      -- 👇 CORRECCIÓN: UNIMOS CON PACIENTES, NO CON PROGRAMAS
-      LEFT JOIN pacientes pac ON c.id_paciente = pac.id_paciente
       
       WHERE c.id_paciente = $1
       ORDER BY c.fecha DESC, c.hora_inicio ASC

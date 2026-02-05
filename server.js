@@ -1808,7 +1808,8 @@ app.post("/crear-bloque-valoracion", async (req, res) => {
     idPersonal, 
     idPacienteExistente, 
     idCitaOrigen, 
-    asistenciaOrigen 
+    asistenciaOrigen,
+    num_programa
   } = req.body;
 
   // Debug inicial para ver qué llega
@@ -1821,7 +1822,7 @@ app.post("/crear-bloque-valoracion", async (req, res) => {
     return res.status(400).json({ error: "Faltan datos para el bloque" });
   }
   
-  const numPrograma = datosPaciente.num_programa || 1;
+ const numPrograma = num_programa || datosPaciente.num_programa || 1;
 
   const client = await pool.connect();
 

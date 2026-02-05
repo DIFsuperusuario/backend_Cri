@@ -1802,6 +1802,10 @@ app.patch("/finalizar-paciente", async (req, res) => {
 // --- RUTA: Crear Bloque de Valoración (VERSIÓN DEBUGGER) ---
 // -----------------------------------------------------------
 app.post("/crear-bloque-valoracion", async (req, res) => {
+  // 1. CHIVATO: LOGUEAMOS TODO EL BODY CRUDO
+  console.log("\n🛑🛑🛑 --- DEBUG DE ENTRADA --- 🛑🛑🛑");
+  console.log("Recibido en req.body:", JSON.stringify(req.body, null, 2));
+
   const { 
     datosPaciente, 
     listaCitas, 
@@ -1809,20 +1813,33 @@ app.post("/crear-bloque-valoracion", async (req, res) => {
     idPacienteExistente, 
     idCitaOrigen, 
     asistenciaOrigen,
-    num_programa
+    num_programa // <--- Intentamos sacarlo de aquí
   } = req.body;
 
-  // Debug inicial para ver qué llega
-  console.log("\n--- 📦 DEBUG: CREAR BLOQUE ---");
-  console.log("ID Paciente Existente:", idPacienteExistente);
-  console.log("Motivo Recibido:", datosPaciente?.motivo_estudio);
-  console.log("Servicio Recibido:", datosPaciente?.servicio);
+  // 2. LÓGICA DE DETECCIÓN DEL NIVEL
+  // Prioridad: 1. Lo que viene suelto -> 2. Lo que viene en datosPaciente -> 3. Default 1
+  let programaFinal = 1;
+  
+  if (num_programa) {
+      programaFinal = parseInt(num_programa);
+      console.log("✅ Usando num_programa 'suelto' del body:", programaFinal);
+  } else if (datosPaciente && datosPaciente.num_programa) {
+      programaFinal = parseInt(datosPaciente.num_programa);
+      console.log("⚠️ Usando num_programa de datosPaciente:", programaFinal);
+  } else if (datosPaciente && datosPaciente.num_programa_actual) {
+      // Por si acaso Flutter lo manda con el nombre largo
+      programaFinal = parseInt(datosPaciente.num_programa_actual);
+      console.log("⚠️ Usando num_programa_actual de datosPaciente:", programaFinal);
+  } else {
+      console.log("❌ NO SE ENCONTRÓ NIVEL. Usando Default: 1");
+  }
+
+  console.log("🎯 NIVEL FINAL A GUARDAR:", programaFinal);
+  console.log("------------------------------------------\n");
 
   if (!listaCitas || listaCitas.length === 0 || !idPersonal) {
     return res.status(400).json({ error: "Faltan datos para el bloque" });
   }
-  
- const numPrograma = num_programa || datosPaciente.num_programa || 1;
 
   const client = await pool.connect();
 
@@ -1843,9 +1860,10 @@ app.post("/crear-bloque-valoracion", async (req, res) => {
     if (idPacienteExistente) {
         // --- CASO: UPDATE PACIENTE ---
         idPacienteFinal = idPacienteExistente;
-
-        console.log(`🔄 Intentando UPDATE al paciente ${idPacienteFinal}...`);
+        console.log(`🔄 Actualizando Paciente ID: ${idPacienteFinal} al Nivel ${programaFinal}`);
         
+        // 🔥 CORRECCIÓN IMPORTANTE: AGREGAMOS 'num_programa_actual' AL UPDATE
+        // Si no actualizas esto, el paciente se queda en el pasado.
         const sqlUpdatePaciente = `
             UPDATE paciente 
             SET 
@@ -1853,41 +1871,46 @@ app.post("/crear-bloque-valoracion", async (req, res) => {
               servicio = $2,        
               domicilio = $3,       
               telefono = $4,
-              edad = $5             
-            WHERE id_paciente = $6
+              edad = $5,
+              num_programa_actual = $6  -- <--- CAMPO NUEVO IMPORTANTE
+            WHERE id_paciente = $7
         `;
         
         const resUpdate = await client.query(sqlUpdatePaciente, [
-            datosPaciente.motivo_estudio, // Asegúrate que en Flutter se llame así
+            datosPaciente.motivo_estudio,
             datosPaciente.servicio,       
             datosPaciente.domicilio,      
             datosPaciente.telefono,       
-            datosPaciente.edad,           
+            datosPaciente.edad,
+            programaFinal, // <--- Guardamos el Nivel Nuevo en el Paciente
             idPacienteFinal               
         ]);
         
-        // ¡AQUÍ ESTÁ EL CHIVATO!
         if (resUpdate.rowCount === 0) {
-            console.log("⚠️ ALERTA: El UPDATE corrió pero no encontró al paciente (Filas afectadas: 0)");
-            throw new Error(`Paciente ID ${idPacienteFinal} no encontrado para actualizar.`);
-        } else {
-            console.log("✅ UPDATE exitoso. Filas afectadas:", resUpdate.rowCount);
+            throw new Error(`Paciente ID ${idPacienteFinal} no encontrado.`);
         }
 
     } else {
         // --- CASO: INSERT PACIENTE ---
-        console.log("🆕 Creando paciente nuevo...");
+        console.log("🆕 Creando paciente nuevo con Nivel", programaFinal);
+        
+        // También aquí agregamos num_programa_actual
         const sqlInsertPaciente = `
            INSERT INTO paciente (
               nombre, edad, fecha_nac, entidad_fed, curp, domicilio, 
               cp, telefono, sexo, edo_civil, escolaridad, ref_medica, 
-              servicio, motivo_estudio, estatus_paciente
+              servicio, motivo_estudio, estatus_paciente, num_programa_actual
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'Activo')
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'Activo', $15)
            RETURNING id_paciente; 
         `;
         const p = datosPaciente;
-        const valores = [p.nombre, p.edad, p.fecha_nac, p.entidad_fed, p.curp, p.domicilio, p.cp, p.telefono, p.sexo, p.edo_civil, p.escolaridad, p.ref_medica, p.servicio, p.motivo_estudio];
+        const valores = [
+            p.nombre, p.edad, p.fecha_nac, p.entidad_fed, p.curp, p.domicilio, 
+            p.cp, p.telefono, p.sexo, p.edo_civil, p.escolaridad, p.ref_medica, 
+            p.servicio, p.motivo_estudio, 
+            programaFinal // <--- $15
+        ];
         
         const resPac = await client.query(sqlInsertPaciente, valores);
         idPacienteFinal = resPac.rows[0].id_paciente;
@@ -1907,14 +1930,16 @@ app.post("/crear-bloque-valoracion", async (req, res) => {
     const servicioGuardar = datosPaciente.servicio || "General";
 
     for (const cita of listaCitas) {
+      // Usamos programaFinal que ya calculamos arriba
       await client.query(sqlCita, [
         idPacienteFinal, idPersonal, cita.fecha, cita.hora_inicio, cita.hora_fin,
-        servicioGuardar, indice, totalVal, numPrograma
+        servicioGuardar, indice, totalVal, programaFinal 
       ]);
       indice++;
     }
 
     await client.query("COMMIT");
+    console.log("✅ ÉXITO TOTAL. Nivel guardado:", programaFinal);
     res.status(201).json({ message: "Bloque creado y paciente actualizado", id_paciente: idPacienteFinal });
 
   } catch (err) {

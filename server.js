@@ -816,7 +816,7 @@ app.get("/pacientes-por-finalizar", async (req, res) => {
           escolaridad: row.escolaridad,
           ref_medica: row.ref_medica,
           motivo_estudio: row.motivo_estudio,
-          
+          num_programa_actual: row.num_programa_actual,
           programa_actual: row.num_programa,
           historial: [] 
         };

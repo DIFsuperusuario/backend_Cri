@@ -2829,7 +2829,7 @@ const query = `
 });
 
 // -----------------------------------------------------------
-// --- RUTA: SALA DE ESPERA (CORREGIDA PARA CAMBIO DE NIVEL) ---
+// --- RUTA: SALA DE ESPERA (FIX DEFINITIVO NIVEL) ---
 // -----------------------------------------------------------
 app.get("/pacientes/pendientes-cita", async (req, res) => {
   try {
@@ -2843,27 +2843,18 @@ app.get("/pacientes/pendientes-cita", async (req, res) => {
         FROM citas c 
         WHERE c.id_paciente = p.id_paciente 
         
-        AND UPPER(c.estatus) NOT IN ('CANCELADA', 'BAJA') -- Ignoramos basura
+        AND UPPER(c.estatus) NOT IN ('CANCELADA', 'BAJA') 
+
+        -- 👇👇👇 AQUÍ ESTÁ EL CAMBIO MAESTRO 👇👇👇
+        -- Antes tenías un OR separado. Ahora obligamos a que TODO coincida con el nivel.
+        
+        AND c.num_programa = p.num_programa_actual -- 1. Solo miramos citas del Nivel 2
 
         AND (
-             -- 1. SI TIENE CITA FUTURA (De hoy en adelante)
-             -- Si ya tiene reservado para mañana (aunque sea error de nivel), lo escondemos.
-             c.fecha > CURRENT_DATE 
-             
-             OR 
-
-             -- 2. SI TIENE ACTIVIDAD EN SU *NIVEL ACTUAL*
-             -- Aquí es donde arreglamos tu problema:
-             -- Solo nos importa si tiene citas (Pendientes, Agendadas o Finalizadas)
-             -- que COINCIDAN con el 'num_programa_actual' (ej: 2).
-             -- Si tiene citas pendientes del Nivel 1, ESTA CONDICIÓN NO SE CUMPLE
-             -- y el paciente APARECE en la lista.
-             (
-                c.num_programa = p.num_programa_actual
-                
-                -- Opcional: Si quieres ser aun más estricto, incluye también las de hoy
-                -- c.fecha = CURRENT_DATE 
-             )
+             -- 2. Y dentro de ese nivel, buscamos si ya tiene algo agendado o hecho.
+             c.fecha >= CURRENT_DATE 
+             OR
+             c.estatus = 'Finalizada' -- O si ya empezó tratamiento
         )
       )
       ORDER BY p.fecha_registro ASC;

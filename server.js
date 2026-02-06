@@ -3501,52 +3501,54 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
   }
 });
 // -----------------------------------------------------------
-// --- RUTA FINAL: EDICIÓN HISTORIAL (CON AUTOCAMBIO DE ESTATUS) ---
+// --- RUTA FINAL: EDICIÓN HISTORIAL COMPLETA (DINERO + ESTATUS + NOTA) ---
 // -----------------------------------------------------------
 app.patch("/editar-cita-historial", async (req, res) => {
-  const { id_cita, asistencia, observacion } = req.body;
+  // 1. RECIBIMOS EL PAGO TAMBIÉN
+  const { id_cita, asistencia, observacion, pago } = req.body;
   
   const client = await pool.connect();
   
   try {
     await client.query('BEGIN'); 
 
-    // 1. CITA: Actualizar asistencia Y ESTATUS AUTOMÁTICAMENTE
-    // 👇👇👇 AQUÍ ESTÁ LA MAGIA 👇👇👇
+    // 2. Preparamos el monto (si viene nulo, ponemos 0)
+    const montoFinal = pago || 0;
+
+    // 3. ACTUALIZAMOS CITA: Asistencia, PAGO y Estatus Automático
     const sqlCita = `
       UPDATE citas 
       SET 
         asistencia = $1,
+        pago = $2, -- <--- 💰 AQUÍ GUARDAMOS EL DINERO QUE FALTABA
+        
         estatus = CASE 
             -- Regla 1: Si es Primera Vez (P) y Única (1 de 1) -> 'Realizada'
             WHEN tipo_cita = 'P' AND total_val = 1 THEN 'Realizada'
             
-            -- Regla 2: Tratamientos (A) o Bloques (P 1 de 3) -> 'Finalizada'
+            -- Regla 2: Tratamientos (A) o Bloques -> 'Finalizada'
             ELSE 'Finalizada'
         END
-      WHERE id_cita = $2
+      WHERE id_cita = $3
     `;
-    await client.query(sqlCita, [asistencia, id_cita]);
+    
+    // OJO: Enviamos [asistencia, montoFinal, id_cita]
+    await client.query(sqlCita, [asistencia, montoFinal, id_cita]);
 
-    // 2. HISTORIAL: Actualizar o Crear comentario
+    // 4. HISTORIAL: Actualizar o Crear comentario (Igual que antes)
     const checkSql = `SELECT id_historial FROM historial_consultas WHERE id_cita = $1`;
     const checkResult = await client.query(checkSql, [id_cita]);
 
     if (checkResult.rowCount > 0) {
-      // A) UPDATE: Solo actualizamos observaciones
-      const updateHistorial = `
-        UPDATE historial_consultas 
-        SET observaciones = $1 
-        WHERE id_cita = $2
-      `;
+      // A) UPDATE
+      const updateHistorial = `UPDATE historial_consultas SET observaciones = $1 WHERE id_cita = $2`;
       await client.query(updateHistorial, [observacion, id_cita]);
     } else {
-      // B) INSERT: Solo insertamos id_cita, id_paciente y observaciones
+      // B) INSERT
       const datosCita = await client.query('SELECT id_paciente FROM citas WHERE id_cita = $1', [id_cita]);
       
       if (datosCita.rows.length > 0) {
         const { id_paciente } = datosCita.rows[0];
-
         const insertHistorial = `
           INSERT INTO historial_consultas (id_cita, id_paciente, observaciones)
           VALUES ($1, $2, $3)
@@ -3556,7 +3558,7 @@ app.patch("/editar-cita-historial", async (req, res) => {
     }
 
     await client.query('COMMIT'); 
-    res.json({ message: "Guardado y estatus actualizado correctamente" });
+    res.json({ message: "Guardado: Asistencia, Pago y Estatus actualizados" });
 
   } catch (error) {
     await client.query('ROLLBACK');

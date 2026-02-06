@@ -3501,7 +3501,7 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
   }
 });
 // -----------------------------------------------------------
-// --- RUTA FINAL: ESQUEMA ESTRICTO (SOLO 3 CAMPOS) ---
+// --- RUTA FINAL: EDICIÓN HISTORIAL (CON AUTOCAMBIO DE ESTATUS) ---
 // -----------------------------------------------------------
 app.patch("/editar-cita-historial", async (req, res) => {
   const { id_cita, asistencia, observacion } = req.body;
@@ -3511,8 +3511,21 @@ app.patch("/editar-cita-historial", async (req, res) => {
   try {
     await client.query('BEGIN'); 
 
-    // 1. CITA: Actualizar asistencia
-    const sqlCita = `UPDATE citas SET asistencia = $1 WHERE id_cita = $2`;
+    // 1. CITA: Actualizar asistencia Y ESTATUS AUTOMÁTICAMENTE
+    // 👇👇👇 AQUÍ ESTÁ LA MAGIA 👇👇👇
+    const sqlCita = `
+      UPDATE citas 
+      SET 
+        asistencia = $1,
+        estatus = CASE 
+            -- Regla 1: Si es Primera Vez (P) y Única (1 de 1) -> 'Realizada'
+            WHEN tipo_cita = 'P' AND total_val = 1 THEN 'Realizada'
+            
+            -- Regla 2: Tratamientos (A) o Bloques (P 1 de 3) -> 'Finalizada'
+            ELSE 'Finalizada'
+        END
+      WHERE id_cita = $2
+    `;
     await client.query(sqlCita, [asistencia, id_cita]);
 
     // 2. HISTORIAL: Actualizar o Crear comentario
@@ -3529,14 +3542,11 @@ app.patch("/editar-cita-historial", async (req, res) => {
       await client.query(updateHistorial, [observacion, id_cita]);
     } else {
       // B) INSERT: Solo insertamos id_cita, id_paciente y observaciones
-      // (Buscamos el id_paciente primero)
       const datosCita = await client.query('SELECT id_paciente FROM citas WHERE id_cita = $1', [id_cita]);
       
       if (datosCita.rows.length > 0) {
         const { id_paciente } = datosCita.rows[0];
 
-        // 👇 AQUÍ ESTÁ LA CORRECCIÓN FINAL 👇
-        // Solo 3 columnas. Ni una más.
         const insertHistorial = `
           INSERT INTO historial_consultas (id_cita, id_paciente, observaciones)
           VALUES ($1, $2, $3)
@@ -3546,7 +3556,7 @@ app.patch("/editar-cita-historial", async (req, res) => {
     }
 
     await client.query('COMMIT'); 
-    res.json({ message: "Guardado correctamente" });
+    res.json({ message: "Guardado y estatus actualizado correctamente" });
 
   } catch (error) {
     await client.query('ROLLBACK');

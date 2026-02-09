@@ -1647,7 +1647,7 @@ app.patch('/actualizar-asistencia', async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA: IMPREVISTOS (Original + Corrección de Faltas '0') ---
+// --- RUTA: IMPREVISTOS (Filtro Estricto V1 + Detector de Olvidos + Check Futuro Global) ---
 // -----------------------------------------------------------
 app.get("/pacientes-imprevistos", async (req, res) => {
   const client = await pool.connect();
@@ -1664,7 +1664,12 @@ app.get("/pacientes-imprevistos", async (req, res) => {
         c.num_programa,
         c.servicio_area,
         
-        -- Subconsultas Originales (INTACTAS)
+        -- Para que veas en el front por qué cayó aquí
+        CASE 
+            WHEN c.asistencia = 0 THEN 'Sin Estatus (Olvido)'
+            ELSE 'Falta/Cancelación'
+        END as motivo_detalle,
+
         (SELECT COUNT(*) > 0 FROM citas h WHERE h.id_paciente = p.id_paciente AND h.asistencia = 4) as tiene_historial,
         (SELECT hc.observaciones FROM historial_consultas hc WHERE hc.id_cita = c.id_cita LIMIT 1) as observaciones
 
@@ -1674,26 +1679,31 @@ app.get("/pacientes-imprevistos", async (req, res) => {
       
       WHERE 
         p.estatus_paciente = 'Activo'
-        AND c.indice_val = 1 
+        
+        -- 1. REGLA DE ORO: Solo Valoraciones Únicas
         AND (c.tipo_cita = 'V' OR c.tipo_cita = 'P') 
-        AND c.total_val = 1 
-        AND c.num_programa = p.num_programa_actual 
+        AND c.indice_val = 1   -- Primera sesión
+        AND c.total_val = 1    -- DEBE SER 1 (Si es >1, es extendida y se ignora)
 
-        -- 👇 AQUÍ ESTÁ EL ÚNICO CAMBIO (LÓGICA BLINDADA) 👇
-        -- Antes decías: AND c.asistencia IN (1, 2, 3)
-        -- Ahora decimos: "O tiene falta (1,2,3) O se les olvidó ponerla (0 y ya pasó la fecha)"
+        -- 2. EL DETECTOR DE FALLAS Y FANTASMAS
+        -- Atrapa si tiene falta explícita (1,2,3) 
+        -- O si se les olvidó poner asistencia (0) y ya pasó el día
         AND (
             c.asistencia IN (1, 2, 3)
             OR 
             (c.asistencia = 0 AND c.fecha < CURRENT_DATE)
         )
-        -- 👆 FIN DEL CAMBIO
 
+        -- 3. EL ESCUDO DE FUTURO (La lógica que pediste) 🛡️
+        -- "No importa el nivel, si tiene cita futura, NO ME LO TRAIGAS"
+        -- Buscamos si existe CUALQUIER cita (V, T, A...) agendada de hoy en adelante.
         AND NOT EXISTS (
-            SELECT 1 FROM citas c2 
-            WHERE c2.id_paciente = c.id_paciente 
-            AND c2.estatus = 'Agendada' 
+            SELECT 1 FROM citas futuro 
+            WHERE futuro.id_paciente = c.id_paciente 
+            AND futuro.estatus = 'Agendada' 
+            AND futuro.fecha >= CURRENT_DATE  -- <--- ESTO ES LO QUE VALE
         )
+
       ORDER BY c.fecha DESC;
     `;
     const result = await client.query(sql);

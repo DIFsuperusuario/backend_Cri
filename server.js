@@ -3183,7 +3183,7 @@ app.get("/gestion/pacientes-activos-agrupados", async (req, res) => {
   }
 });
 // -----------------------------------------------------------
-// --- RUTA: BUSCADOR GLOBAL INTELIGENTE ---
+// --- RUTA: BUSCADOR GLOBAL INTELIGENTE ---veremos si esta si
 // -----------------------------------------------------------
 app.get("/gestion/buscar-paciente-global", async (req, res) => {
   const { q } = req.query; // q = lo que escribe el usuario

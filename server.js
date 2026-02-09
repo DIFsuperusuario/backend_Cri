@@ -1647,19 +1647,7 @@ app.patch('/actualizar-asistencia', async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA: IMPREVISTOS (CORREGIDA: Filtra solo Activos) ---
-// -----------------------------------------------------------
-// -----------------------------------------------------------
-// --- RUTA: IMPREVISTOS (CORREGIDA: Filtra si ya tiene cita agendada) ---
-// -----------------------------------------------------------
-// -----------------------------------------------------------
-// --- RUTA: IMPREVISTOS (Con detector de Historial Previo) ---
-// -----------------------------------------------------------
-// -----------------------------------------------------------
-// --- RUTA: IMPREVISTOS (FINAL: Con Observaciones y Reagendados) ---
-// -----------------------------------------------------------
-// -----------------------------------------------------------
-// --- RUTA: IMPREVISTOS (CORREGIDA: Filtra por Nivel Actual) ---
+// --- RUTA: IMPREVISTOS (Original + Corrección de Faltas '0') ---
 // -----------------------------------------------------------
 app.get("/pacientes-imprevistos", async (req, res) => {
   const client = await pool.connect();
@@ -1676,24 +1664,30 @@ app.get("/pacientes-imprevistos", async (req, res) => {
         c.num_programa,
         c.servicio_area,
         
-        -- Subconsultas (Historial y Observaciones)...
+        -- Subconsultas Originales (INTACTAS)
         (SELECT COUNT(*) > 0 FROM citas h WHERE h.id_paciente = p.id_paciente AND h.asistencia = 4) as tiene_historial,
         (SELECT hc.observaciones FROM historial_consultas hc WHERE hc.id_cita = c.id_cita LIMIT 1) as observaciones
 
       FROM citas c
       JOIN paciente p ON c.id_paciente = p.id_paciente
       JOIN personal per ON c.id_personal = per.id_personal
+      
       WHERE 
-        c.asistencia IN (1, 2, 3)       -- Faltas
-        AND p.estatus_paciente = 'Activo'
+        p.estatus_paciente = 'Activo'
         AND c.indice_val = 1 
         AND (c.tipo_cita = 'V' OR c.tipo_cita = 'P') 
         AND c.total_val = 1 
-        
-        -- 🔥 CORRECCIÓN CLAVE AQUÍ:
-        -- Solo mostrar la falta si coincide con el nivel actual del paciente.
-        -- Si el paciente ya subió a Nivel 2, la falta del Nivel 1 desaparece.
         AND c.num_programa = p.num_programa_actual 
+
+        -- 👇 AQUÍ ESTÁ EL ÚNICO CAMBIO (LÓGICA BLINDADA) 👇
+        -- Antes decías: AND c.asistencia IN (1, 2, 3)
+        -- Ahora decimos: "O tiene falta (1,2,3) O se les olvidó ponerla (0 y ya pasó la fecha)"
+        AND (
+            c.asistencia IN (1, 2, 3)
+            OR 
+            (c.asistencia = 0 AND c.fecha < CURRENT_DATE)
+        )
+        -- 👆 FIN DEL CAMBIO
 
         AND NOT EXISTS (
             SELECT 1 FROM citas c2 

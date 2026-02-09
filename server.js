@@ -3183,7 +3183,7 @@ app.get("/gestion/pacientes-activos-agrupados", async (req, res) => {
   }
 });
 // -----------------------------------------------------------
-// --- RUTA: BUSCADOR GLOBAL INTELIGENTE ---veremos si esta si
+// --- RUTA: BUSCADOR GLOBAL BLINDADO (ENCUENTRA VIEJITOS Y NUEVOS) 🛡️ ---
 // -----------------------------------------------------------
 app.get("/gestion/buscar-paciente-global", async (req, res) => {
   const { q } = req.query; // q = lo que escribe el usuario
@@ -3196,27 +3196,46 @@ app.get("/gestion/buscar-paciente-global", async (req, res) => {
         p.id_paciente,
         p.nombre as nombre_paciente,
         p.num_programa_actual,
+        p.telefono,
+        p.domicilio,
         
-        -- Datos de ubicación
-        per.nombre as nombre_terapeuta,
-        per.funcion as area_terapeuta
+        -- Datos de la cita
+        c.fecha,
+        c.hora_inicio,
+        
+        -- Datos del Personal (BLINDADO CON COALESCE Y CAST)
+        -- Si no hay match exacto, ponemos valores por defecto para que no explote
+        COALESCE(per.nombre, 'SIN ASIGNAR') AS nombre_terapeuta,
+        COALESCE(per.funcion, 'CONSULTA EXTERNA') AS area_terapeuta
 
       FROM citas c
-      JOIN paciente p ON c.id_paciente = p.id_paciente
-      JOIN personal per ON c.id_personal = per.id_personal
+      INNER JOIN paciente p ON c.id_paciente = p.id_paciente
+      
+      -- LEFT JOIN BLINDADO: Convierte a texto para asegurar match aunque la BD tenga basura
+      LEFT JOIN personal per ON TRIM(CAST(c.id_personal AS VARCHAR)) = TRIM(CAST(per.id_personal AS VARCHAR))
       
       WHERE 
-        p.estatus_paciente = 'Activo'
-        AND p.nombre ILIKE $1 -- Búsqueda insensible a mayúsculas
-        AND c.fecha >= CURRENT_DATE 
-        AND per.funcion NOT ILIKE '%recepcion%'
-        AND per.funcion NOT ILIKE '%admin%'
+        -- 1. Buscamos el nombre (Insensible a mayúsculas)
+        p.nombre ILIKE $1 
+        
+        -- 2. Solo Pacientes Activos (Quitando espacios basura)
+        AND TRIM(p.estatus_paciente) = 'Activo'
+
+        -- 3. VALIDACIÓN DE NIVELES (La misma lógica de la lista principal)
+        AND (
+            TRIM(CAST(c.num_programa AS VARCHAR)) = TRIM(CAST(p.num_programa_actual AS VARCHAR))
+            OR c.num_programa IS NULL
+        )
+
+      -- IMPORTANTE: Ya NO filtramos por fecha futura (c.fecha >= CURRENT_DATE fue eliminado)
+      -- Esto permite que salgan los del año pasado.
 
       ORDER BY p.id_paciente, c.fecha DESC;
     `;
     
-    // Agregamos % para buscar coincidencias parciales
+    // Ejecutamos la consulta
     const result = await pool.query(sql, [`%${q}%`]);
+    console.log(`🔍 Buscando: "${q}" - Encontrados: ${result.rows.length}`);
     res.json(result.rows);
 
   } catch (error) {
@@ -3224,7 +3243,6 @@ app.get("/gestion/buscar-paciente-global", async (req, res) => {
     res.status(500).json([]);
   }
 });
-
 
 // -----------------------------------------------------------
 // --- RUTA: OBTENER CITAS (FILTRADO POR NIVEL ACTUAL) ---

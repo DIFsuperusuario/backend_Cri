@@ -49,31 +49,22 @@ const pool = new Pool({
 
 /////////////////////////////adrian//////////////////////////////////////////////////////////////////////////////
 // -----------------------------------------------------------------
-// FUNCIÓN CENTRAL: Consulta de Datos de Reporte (CORREGIDA)
+// FUNCIÓN CENTRAL: Consulta de Datos de Reporte (CON FILTRO DE ÁREA)
 // -----------------------------------------------------------------
-async function queryReportData(client, type, year, month, limitRows = false) {
+async function queryReportData(client, type, year, month, area, limitRows = false) { // <--- Agregamos 'area'
     let sql = `
         SELECT 
             p.id_paciente,
             p.nombre AS nombre_paciente,
-            
-            -- 🔥 FIX DE FECHA: Traemos la fecha como TEXTO (YYYY-MM-DD)
-            -- Esto evita que Node.js le reste horas por la zona horaria.
             TO_CHAR(c.fecha, 'YYYY-MM-DD') AS fecha_simple, 
-            
-            -- Mantenemos la original por si acaso, pero usaremos fecha_simple en el front
             c.fecha, 
-
             TO_CHAR(c.hora_inicio, 'HH24:MI') AS hora_inicio,
             TO_CHAR(c.hora_fin, 'HH24:MI') AS hora_fin,
             pe.nombre AS nombre_tratante,
             c.servicio_area,
             c.estatus,
-            
-            -- 🔥 FIX DE PAGO Y ASISTENCIA
-            COALESCE(c.pago, 0) as pago,  -- Si es null, devuelve 0
-            c.asistencia,                 -- INDISPENSABLE para los colores (1,2,3,4,5)
-            
+            COALESCE(c.pago, 0) as pago,
+            c.asistencia,
             c.motivo_pago,
             c.tipo_cita
         FROM citas c
@@ -85,33 +76,30 @@ async function queryReportData(client, type, year, month, limitRows = false) {
     let params = [];
     let filterIndex = 1;
 
-    // --- LÓGICA DE FILTRADO DE FECHAS ---
+    // 1. FILTRO DE FECHAS
     if (type === 'mensual' && month) {
         const fechaInicio = `${year}-${month}-01`;
-        // Truco para obtener el último día del mes
         const lastDay = new Date(year, parseInt(month), 0).getDate(); 
         const fechaFin = `${year}-${month}-${lastDay}`;
-        
         sql += ` AND c.fecha BETWEEN $${filterIndex++} AND $${filterIndex++}`;
         params.push(fechaInicio, fechaFin);
-        
     } else if (type === 'anual') {
         const fechaInicio = `${year}-01-01`;
         const fechaFin = `${year}-12-31`;
-        
         sql += ` AND c.fecha BETWEEN $${filterIndex++} AND $${filterIndex++}`;
         params.push(fechaInicio, fechaFin);
-    } else {
-        // Si no mandan nada, filtramos para que no traiga toda la historia
-        // (Opcional: podrías lanzar error, pero mejor prevenimos)
+    }
+
+    // 2. 🔥 FILTRO DE ÁREA (NUEVO) 🔥
+    // Si viene un área y NO es 'TODOS', filtramos.
+    if (area && area !== 'TODOS') {
+        sql += ` AND c.servicio_area = $${filterIndex++}`;
+        params.push(area);
     }
     
     sql += ` ORDER BY c.fecha ASC, c.hora_inicio ASC`;
     
-    // Aplicar límite si es para vista previa
     if (limitRows) {
-        // 🔥 AUMENTADO: 20 es muy poco para una matriz mensual.
-        // Ponemos 2000 para asegurar que se llene la tabla visualmente.
         sql += ` LIMIT 2000`; 
     }
 

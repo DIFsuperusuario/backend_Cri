@@ -3647,6 +3647,98 @@ app.get("/personal-por-area", async (req, res) => {
     client.release();
   }
 });
+////////////////////////historial//////////
+// -----------------------------------------------------------
+// --- RUTA NUEVA: Historial de Asistencias (Por Fecha) ---
+// --- Recibe: ?fecha=YYYY-MM-DD & especialidad=...      ---
+// -----------------------------------------------------------
+app.get("/citas-historial", async (req, res) => {
+  const { fecha, especialidad } = req.query;
+
+  // Validaciones básicas
+  if (!fecha) return res.status(400).json({ error: "Falta la fecha (YYYY-MM-DD)" });
+  if (!especialidad) return res.status(400).json({ error: "Falta especialidad" });
+
+  const client = await pool.connect();
+  try {
+
+    // ---------------------------------------------------------
+    // CONSULTA 1: Profesionales que tuvieron citas en ESA FECHA
+    // ---------------------------------------------------------
+    const sqlProfesionalesHistorial = `
+      SELECT DISTINCT
+        pe.id_personal,
+        pe.nombre AS nombre_profesional,
+        pe.funcion AS especialidad
+      FROM personal pe
+      JOIN citas c ON pe.id_personal = c.id_personal
+      WHERE
+        c.fecha = $1::date  -- 👈 Usamos la fecha que llega del front
+        AND unaccent(TRIM(c.servicio_area)) ILIKE unaccent($2)
+    `;
+
+    // Ejecutamos Query 1
+    const resProfesionales = await client.query(sqlProfesionalesHistorial, [fecha, especialidad]);
+    const profesionales = resProfesionales.rows;
+
+    // Si nadie trabajó ese día, regresamos lista vacía
+    if (profesionales.length === 0) return res.json([]);
+
+    // ---------------------------------------------------------
+    // CONSULTA 2: Pacientes de esa fecha (TODOS: Asistieron y Faltaron)
+    // ---------------------------------------------------------
+    const idsProfesionales = profesionales.map(p => p.id_personal);
+
+    const sqlPacientesHistorial = `
+      SELECT
+        c.id_cita, c.id_personal, c.id_paciente, c.asistencia, c.pago, c.indice_val, c.total_val,
+        pa.nombre AS nombre_paciente,
+        pa.tipo_paciente, 
+        pa.motivo_estudio, pa.servicio, pa.fecha_nac, pa.domicilio,
+        pa.telefono, pa.tel_domicilio, pa.edad, pa.sexo, pa.ocupacion,
+        edo_civil, pa.escolaridad, pa.entidad_fed, pa.cp, pa.num_consultorio,
+        
+        c.servicio_area,
+        TO_CHAR(c.hora_inicio, 'HH24:MI') AS hora_inicio,
+        TO_CHAR(c.hora_fin, 'HH24:MI') AS hora_fin,
+        c.tipo_cita
+      FROM citas c
+      JOIN paciente pa ON c.id_paciente = pa.id_paciente
+      WHERE
+        c.id_personal = ANY($1::int[])     -- Array de IDs de los doctores encontrados
+        AND c.fecha = $2::date             -- La fecha específica
+        AND unaccent(TRIM(c.servicio_area)) ILIKE unaccent($3)
+      ORDER BY c.hora_inicio;
+    `;
+    
+    // Ejecutamos Query 2
+    const resPacientes = await client.query(sqlPacientesHistorial, [idsProfesionales, fecha, especialidad]);
+    
+    // --- FUSIÓN DE DATOS (Misma estructura que el original para reutilizar modelos en Flutter) ---
+    const pacientes = resPacientes.rows;
+    
+    const resultadoFinal = profesionales.map(prof => {
+      const pacientesAsignados = pacientes.filter(pac => pac.id_personal === prof.id_personal);
+      return {
+        ...prof,
+        conteo_pacientes: pacientesAsignados.length,
+        pacientes: pacientesAsignados
+      };
+    });
+    
+    res.json(resultadoFinal);
+
+  } catch (error) {
+    console.error("Error en citas-historial:", error);
+    res.status(500).json({ error: "Error al obtener historial" });
+  } finally {
+    client.release();
+  }
+});
+////////////////////////////////////////
+
+
+
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
 // ---------------------------

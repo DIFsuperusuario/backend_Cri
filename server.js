@@ -392,7 +392,7 @@ app.post("/generate-service-count-report", async (req, res) => {
 // 👁️ RUTA: VISTA PREVIA DE DATOS (PREVIEW) - Método GET (Antigua)
 // -----------------------------------------------------------
 app.get("/preview-report-data", async (req, res) => {
-    const { type, year, month } = req.query;
+    const { type, year, month, area } = req.query;
     
     if (!type || !year) {
         return res.status(400).json({ error: "Faltan parámetros 'type' o 'year'." });
@@ -400,7 +400,7 @@ app.get("/preview-report-data", async (req, res) => {
 
     const client = await pool.connect();
     try {
-        const previewData = await queryReportData(client, type, year, month, true);
+        const previewData = await queryReportData(client, type, year, month, area, true);
         
         if (previewData.length === 0) {
             return res.status(404).json({ 
@@ -421,7 +421,7 @@ app.get("/preview-report-data", async (req, res) => {
 // 📊 RUTA DE GENERACIÓN DE REPORTES (GENERATE) - Método POST (Antigua)
 // -----------------------------------------------------------
 app.post("/generate-report", async (req, res) => {
-    const { type, year, month } = req.body;
+    const { type, year, month, area } = req.body;
     
     if (!type || !year) {
         return res.status(400).json({ error: "Faltan parámetros 'type' o 'year'." });
@@ -429,7 +429,7 @@ app.post("/generate-report", async (req, res) => {
 
     const client = await pool.connect();
     try {
-        const reportData = await queryReportData(client, type, year, month, false);
+        const reportData = await queryReportData(client, type, year, month, area, false);
         
         if (reportData.length === 0) {
             return res.status(404).json({ 

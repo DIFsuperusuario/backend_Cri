@@ -1647,7 +1647,7 @@ app.patch('/actualizar-asistencia', async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA: IMPREVISTOS (Filtro Estricto V1 + Detector de Olvidos + Check Futuro Global) ---
+// --- RUTA: IMPREVISTOS DEFINITIVA (Faltas + Olvidos + Check de Recuperación) ---
 // -----------------------------------------------------------
 app.get("/pacientes-imprevistos", async (req, res) => {
   const client = await pool.connect();
@@ -1664,7 +1664,7 @@ app.get("/pacientes-imprevistos", async (req, res) => {
         c.num_programa,
         c.servicio_area,
         
-        -- Para que veas en el front por qué cayó aquí
+        -- Etiqueta para el Front: ¿Fue falta o fue error de dedo?
         CASE 
             WHEN c.asistencia = 0 THEN 'Sin Estatus (Olvido)'
             ELSE 'Falta/Cancelación'
@@ -1680,28 +1680,32 @@ app.get("/pacientes-imprevistos", async (req, res) => {
       WHERE 
         p.estatus_paciente = 'Activo'
         
-        -- 1. REGLA DE ORO: Solo Valoraciones Únicas
+        -- 1. SOLO PRIMERA VEZ / VALORACIÓN ÚNICA
         AND (c.tipo_cita = 'V' OR c.tipo_cita = 'P') 
-        AND c.indice_val = 1   -- Primera sesión
-        AND c.total_val = 1    -- DEBE SER 1 (Si es >1, es extendida y se ignora)
+        AND c.indice_val = 1 
+        AND c.total_val = 1 
 
-        -- 2. EL DETECTOR DE FALLAS Y FANTASMAS
-        -- Atrapa si tiene falta explícita (1,2,3) 
-        -- O si se les olvidó poner asistencia (0) y ya pasó el día
+        -- 2. AQUÍ ESTÁ TU REGLA DEL "OLVIDO" 👇
+        -- Atrapa si tiene falta explicita OR si es Fantasma (0 y fecha pasada)
         AND (
             c.asistencia IN (1, 2, 3)
             OR 
-            (c.asistencia = 0 AND c.fecha < CURRENT_DATE)
+            (c.asistencia = 0 AND c.fecha < CURRENT_DATE) -- <--- ¡AQUÍ ESTÁ!
         )
 
-        -- 3. EL ESCUDO DE FUTURO (La lógica que pediste) 🛡️
-        -- "No importa el nivel, si tiene cita futura, NO ME LO TRAIGAS"
-        -- Buscamos si existe CUALQUIER cita (V, T, A...) agendada de hoy en adelante.
+        -- 3. EL PERDÓN (Solo si la historia continuó)
+        -- Si después de ese error/falta, el paciente ya tuvo otra cita (4)
+        -- o ya tiene una nueva agendada, entonces bórralo de la lista.
         AND NOT EXISTS (
-            SELECT 1 FROM citas futuro 
-            WHERE futuro.id_paciente = c.id_paciente 
-            AND futuro.estatus = 'Agendada' 
-            AND futuro.fecha >= CURRENT_DATE  -- <--- ESTO ES LO QUE VALE
+            SELECT 1 FROM citas posterior 
+            WHERE posterior.id_paciente = c.id_paciente 
+            AND posterior.fecha > c.fecha  -- Buscamos citas DESPUÉS del error
+            AND (
+                posterior.asistencia = 4 -- Ya vino
+                OR posterior.estatus IN ('Agendada', 'Pendiente', 'Confirmada') -- Ya reagendó
+                OR posterior.asistencia = 0 -- Ya tiene una pendiente
+            )
+            AND posterior.estatus NOT IN ('Cancelada', 'Baja')
         )
 
       ORDER BY c.fecha DESC;

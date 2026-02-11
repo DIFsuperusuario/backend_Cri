@@ -32,17 +32,26 @@ app.use('/reports', express.static(reportsDir));
 // -----------------------------------------------------------
 // 4. CONEXIÓN MAESTRA A POSTGRES
 // -----------------------------------------------------------
+// -----------------------------------------------------------
+// 4. CONEXIÓN MAESTRA A POSTGRES (CORREGIDA)
+// -----------------------------------------------------------
 const pool = new Pool({
-  // Si existe DATABASE_URL (en Railway), se usa directo. 
-  // Si no (en Local), usa las variables sueltas.
+  // Borramos todo lo demás para que no haya conflicto.
+  // Solo necesitamos la variable maestra que ya configuraste en Railway.
   connectionString: process.env.DATABASE_URL, 
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
+  
   ssl: {
     rejectUnauthorized: false
+  }
+});
+
+// Test de conexión (Esto te dirá el log "✅" si ya quedó)
+pool.connect((err, client, release) => {
+  if (err) {
+    console.error('❌ Error de conexión:', err.message);
+  } else {
+    console.log('✅ BASE DE DATOS CONECTADA Y LISTA');
+    if (client) release();
   }
 });
 

@@ -111,7 +111,7 @@ async function queryReportData(client, type, year, month, area, limitRows = fals
     sql += ` ORDER BY c.fecha ASC, c.hora_inicio ASC`;
     
     if (limitRows) {
-        sql += ` LIMIT 50`; // Subí el límite un poco para que veas más datos en la preview
+        sql += ` LIMIT 50000`; // Subí el límite un poco para que veas más datos en la preview
     }
 
     console.log(`🔍 Ejecutando SQL para Área: ${area || 'TODOS'}`); // Log para depurar

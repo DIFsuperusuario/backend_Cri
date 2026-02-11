@@ -33,31 +33,31 @@ app.use('/reports', express.static(reportsDir));
 // 4. CONEXIÓN MAESTRA A POSTGRES (Blindada para el Proxy)
 // -----------------------------------------------------------
 // -----------------------------------------------------------
-// 4. CONEXIÓN MAESTRA (ELIMINA EL ECONNRESET)
+// CONEXIÓN MANUAL A POSTGRES (COMO LA TENÍAS ANTES)
 // -----------------------------------------------------------
 const pool = new Pool({
-  // Usamos la variable que vinculaste (DATABASE_PUBLIC_URL)
-  connectionString: process.env.DATABASE_PUBLIC_URL, 
+  user: process.env.DB_USER,
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  password: process.env.DB_PASSWORD,
+  port: process.env.DB_PORT,
   
-  // Esta configuración de SSL es la que acepta el Proxy de Railway sí o sí
+  // Estas líneas son las que evitan el ECONNRESET en conexiones manuales
   ssl: {
     rejectUnauthorized: false
   },
-
-  // --- PARÁMETROS ANTIFALLOS ---
-  max: 10,                        // No satures la BD
-  idleTimeoutMillis: 30000,       // Mantén la conexión "caliente"
-  connectionTimeoutMillis: 10000, // Dale 10 seg para el saludo inicial
+  keepalive: true,
+  connectionTimeoutMillis: 10000 // 10 segundos de margen
 });
 
-// TEST DE CONEXIÓN (MIRA EL LOG DESPUÉS DE SUBIR)
-console.log('⏳ Iniciando apretón de manos con el Proxy...');
+// TEST DE CONEXIÓN INMEDIATO
+console.log(`🔌 Conectando manualmente a ${process.env.DB_HOST}:${process.env.DB_PORT}...`);
 
 pool.connect((err, client, release) => {
   if (err) {
-    console.error('❌ ERROR DE CONEXIÓN:', err.message);
+    console.error('❌ ERROR MANUAL:', err.message);
   } else {
-    console.log('✅ ✅ ✅ CONEXIÓN EXITOSA AL PROXY PÚBLICO ✅ ✅ ✅');
+    console.log('✅ ✅ ✅ ¡CONEXIÓN MANUAL EXITOSA! ✅ ✅ ✅');
     if (client) release();
   }
 });

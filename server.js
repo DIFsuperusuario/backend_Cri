@@ -33,31 +33,29 @@ app.use('/reports', express.static(reportsDir));
 // 4. CONEXIÓN MAESTRA A POSTGRES (Blindada para el Proxy)
 // -----------------------------------------------------------
 // -----------------------------------------------------------
-// CONEXIÓN MANUAL A POSTGRES (COMO LA TENÍAS ANTES)
+// CONEXIÓN MANUAL FORZADA (Arregla el ECONNRESET)
 // -----------------------------------------------------------
+const connectionString = `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`;
+
 const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-  
-  // Estas líneas son las que evitan el ECONNRESET en conexiones manuales
+  connectionString: connectionString,
   ssl: {
     rejectUnauthorized: false
   },
-  keepalive: true,
-  connectionTimeoutMillis: 10000 // 10 segundos de margen
+  // Parámetros para que el proxy no nos bote
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
 });
 
-// TEST DE CONEXIÓN INMEDIATO
-console.log(`🔌 Conectando manualmente a ${process.env.DB_HOST}:${process.env.DB_PORT}...`);
+// TEST DE CONEXIÓN
+console.log('🔌 Intentando conexión manual al puerto 11634...');
 
 pool.connect((err, client, release) => {
   if (err) {
-    console.error('❌ ERROR MANUAL:', err.message);
+    console.error('❌ ERROR CRÍTICO:', err.message);
   } else {
-    console.log('✅ ✅ ✅ ¡CONEXIÓN MANUAL EXITOSA! ✅ ✅ ✅');
+    console.log('✅ ✅ ✅ CONEXIÓN EXITOSA - APP VIVA ✅ ✅ ✅');
     if (client) release();
   }
 });

@@ -10,7 +10,7 @@ const ExcelJS = require('exceljs');
 
 const app = express(); 
 
-// 1. MIDDLEWARES (Limpios y sin repeticiones)
+// 1. MIDDLEWARES
 app.use(cors());          
 app.use(express.json());  
 
@@ -30,45 +30,40 @@ if (!fs.existsSync(reportsDir)) {
 app.use('/reports', express.static(reportsDir));
 
 // -----------------------------------------------------------
-// 4. CONEXIÓN MAESTRA (ELIMINA EL ECONNRESET DE UNA VEZ)
+// 4. CONEXIÓN MANUAL A POSTGRES (COMO TÚ LA TENÍAS)
 // -----------------------------------------------------------
-const connectionString = process.env.DATABASE_PUBLIC_URL;
-
 const pool = new Pool({
-  connectionString: connectionString,
-  ssl: {
-    rejectUnauthorized: false // Esto permite la conexión segura sin certificados locales
-  },
-  max: 1, // Probamos con 1 sola conexión para estabilizar el Proxy
-  connectionTimeoutMillis: 10000, 
-  idleTimeoutMillis: 30000
+  user: process.env.DB_USER,
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  password: process.env.DB_PASSWORD,
+  port: process.env.DB_PORT,
+  // QUITAMOS EL SSL: En la red interna de Railway (5432) NO SE USA.
+  // Esto evitará el Timeout y el ECONNRESET de una vez.
+  connectionTimeoutMillis: 5000,
 });
 
-// TEST DE CONEXIÓN ÚNICO
-console.log('⏳ Verificando DATABASE_PUBLIC_URL...');
+// TEST DE CONEXIÓN
+console.log(`🔌 Conectando manual a la red interna: ${process.env.DB_HOST}:${process.env.DB_PORT}...`);
 
-if (!connectionString) {
-    console.error('❌ ERROR: No se encontró la variable DATABASE_PUBLIC_URL en Railway.');
-} else {
-    console.log('🔌 Intentando conectar al puerto 11634 vía URL...');
-    
-    pool.connect((err, client, release) => {
-      if (err) {
-        console.error('❌ ERROR REAL DE CONEXIÓN:', err.message);
-        console.log('👉 Revisa que la URL en Railway tenga el puerto 11634.');
-      } else {
-        console.log('✅ ✅ ✅ ¡SISTEMA ONLINE! BASE DE DATOS CONECTADA ✅ ✅ ✅');
-        if (client) release();
-      }
-    });
-}
+pool.connect((err, client, release) => {
+  if (err) {
+    console.error('❌ ERROR DE CONEXIÓN:', err.message);
+  } else {
+    console.log('✅ ✅ ✅ ¡CONEXIÓN EXITOSA! SISTEMA ONLINE ✅ ✅ ✅');
+    if (client) release();
+  }
+});
 
 console.log(`🌍 Servidor configurado en: ${BASE_URL}`);
 
 // -----------------------------------------------------------
-// TUS RUTAS ABAJO (app.get, app.post, etc.)
+// AQUÍ VAN TUS RUTAS (NO CAMBIES NADA DE ELLAS)
 // -----------------------------------------------------------
 
+app.listen(PORT, () => {
+    console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
+});
 // -----------------------------------------------------------
 // 📊 RUTA DE GENERACIÓN DE REPORTES (GENERATE) - Método POST (Antigua)
 // -----------------------------------------------------------

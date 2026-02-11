@@ -10,7 +10,7 @@ const ExcelJS = require('exceljs');
 
 const app = express(); 
 
-// 1. MIDDLEWARES
+// 1. MIDDLEWARES (Limpios y sin repeticiones)
 app.use(cors());          
 app.use(express.json());  
 
@@ -30,413 +30,44 @@ if (!fs.existsSync(reportsDir)) {
 app.use('/reports', express.static(reportsDir));
 
 // -----------------------------------------------------------
-// 4. CONEXIÓN MAESTRA (AJUSTADA PARA EL PROXY PÚBLICO)
+// 4. CONEXIÓN MAESTRA (ELIMINA EL ECONNRESET DE UNA VEZ)
 // -----------------------------------------------------------
+const connectionString = process.env.DATABASE_PUBLIC_URL;
+
 const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-  
-  // EL SSL ES OBLIGATORIO PARA EL PUERTO 11634
+  connectionString: connectionString,
   ssl: {
-    rejectUnauthorized: false
+    rejectUnauthorized: false // Esto permite la conexión segura sin certificados locales
   },
-  
-  // Parámetros para evitar el ECONNRESET y el Timeout
-  keepalive: true,
-  connectionTimeoutMillis: 10000, // 10 segundos para conectar
-  idleTimeoutMillis: 30000,       // Mantener la conexión abierta
+  max: 1, // Probamos con 1 sola conexión para estabilizar el Proxy
+  connectionTimeoutMillis: 10000, 
+  idleTimeoutMillis: 30000
 });
 
 // TEST DE CONEXIÓN ÚNICO
-console.log(`🔌 Intentando conectar a ${process.env.DB_HOST}:${process.env.DB_PORT}...`);
+console.log('⏳ Verificando DATABASE_PUBLIC_URL...');
 
-pool.connect((err, client, release) => {
-  if (err) {
-    console.error('❌ ERROR DE CONEXIÓN:', err.message);
-  } else {
-    console.log('✅ ✅ ✅ ¡BASE DE DATOS CONECTADA EXITOSAMENTE! ✅ ✅ ✅');
-    if (client) release();
-  }
-});
+if (!connectionString) {
+    console.error('❌ ERROR: No se encontró la variable DATABASE_PUBLIC_URL en Railway.');
+} else {
+    console.log('🔌 Intentando conectar al puerto 11634 vía URL...');
+    
+    pool.connect((err, client, release) => {
+      if (err) {
+        console.error('❌ ERROR REAL DE CONEXIÓN:', err.message);
+        console.log('👉 Revisa que la URL en Railway tenga el puerto 11634.');
+      } else {
+        console.log('✅ ✅ ✅ ¡SISTEMA ONLINE! BASE DE DATOS CONECTADA ✅ ✅ ✅');
+        if (client) release();
+      }
+    });
+}
 
 console.log(`🌍 Servidor configurado en: ${BASE_URL}`);
-console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
 
 // -----------------------------------------------------------
-// AQUÍ SIGUEN TUS RUTAS (app.get, app.post, etc.)
+// TUS RUTAS ABAJO (app.get, app.post, etc.)
 // -----------------------------------------------------------
-/////////////////////////////adrian//////////////////////////////////////////////////////////////////////////////
-// -----------------------------------------------------------------
-// FUNCIÓN CENTRAL: Consulta de Datos de Reporte (CON FILTRO DE ÁREA)
-// -----------------------------------------------------------------
-async function queryReportData(client, type, year, month, area, limitRows = false) { // <--- Agregamos 'area'
-    let sql = `
-        SELECT 
-            p.id_paciente,
-            p.nombre AS nombre_paciente,
-            TO_CHAR(c.fecha, 'YYYY-MM-DD') AS fecha_simple, 
-            c.fecha, 
-            TO_CHAR(c.hora_inicio, 'HH24:MI') AS hora_inicio,
-            TO_CHAR(c.hora_fin, 'HH24:MI') AS hora_fin,
-            pe.nombre AS nombre_tratante,
-            c.servicio_area,
-            c.estatus,
-            COALESCE(c.pago, 0) as pago,
-            c.asistencia,
-            c.motivo_pago,
-            c.tipo_cita
-        FROM citas c
-        JOIN paciente p ON c.id_paciente = p.id_paciente
-        JOIN personal pe ON c.id_personal = pe.id_personal
-        WHERE 1=1 
-    `;
-    
-    let params = [];
-    let filterIndex = 1;
-
-    // 1. FILTRO DE FECHAS
-    if (type === 'mensual' && month) {
-        const fechaInicio = `${year}-${month}-01`;
-        const lastDay = new Date(year, parseInt(month), 0).getDate(); 
-        const fechaFin = `${year}-${month}-${lastDay}`;
-        sql += ` AND c.fecha BETWEEN $${filterIndex++} AND $${filterIndex++}`;
-        params.push(fechaInicio, fechaFin);
-    } else if (type === 'anual') {
-        const fechaInicio = `${year}-01-01`;
-        const fechaFin = `${year}-12-31`;
-        sql += ` AND c.fecha BETWEEN $${filterIndex++} AND $${filterIndex++}`;
-        params.push(fechaInicio, fechaFin);
-    }
-
-    // 2. 🔥 FILTRO DE ÁREA (NUEVO) 🔥
-    // Si viene un área y NO es 'TODOS', filtramos.
-    if (area && area !== 'TODOS') {
-        sql += ` AND c.servicio_area = $${filterIndex++}`;
-        params.push(area);
-    }
-    
-    sql += ` ORDER BY c.fecha ASC, c.hora_inicio ASC`;
-    
-    if (limitRows) {
-        sql += ` LIMIT 2000`; 
-    }
-
-    const result = await client.query(sql, params);
-    return result.rows;
-}
-
-// -----------------------------------------------------------------
-// NUEVA FUNCIÓN: Consulta de Datos de CONTEO (CON FILTROS DE FECHA)
-// -----------------------------------------------------------------
-async function queryServiceCountData(client, type, year, month) {
-    let params = [];
-    let filterIndex = 1;
-
-    // 1. LÓGICA DE FILTRADO DE FECHAS
-    let fechaFilterSql = "";
-    if (type === 'mensual' && month) {
-        const fechaInicio = `${year}-${month}-01`;
-        const lastDay = new Date(year, parseInt(month), 0).getDate(); 
-        const fechaFin = `${year}-${month}-${lastDay}`;
-        
-        fechaFilterSql = ` AND c.fecha BETWEEN $${filterIndex++} AND $${filterIndex++}`;
-        params.push(fechaInicio, fechaFin);
-        
-    } else if (type === 'anual') {
-        const fechaInicio = `${year}-01-01`;
-        const fechaFin = `${year}-12-31`;
-        
-        fechaFilterSql = ` AND c.fecha BETWEEN $${filterIndex++} AND $${filterIndex++}`;
-        params.push(fechaInicio, fechaFin);
-    } else {
-         // Si no se especifica tipo/año, devolvemos un error 400 en la ruta GET
-         throw new Error("Faltan parámetros de fecha para el conteo.");
-    }
-
-    // 2. CONSULTA SQL principal con el filtro de fecha inyectado
-    const sql = `
-        SELECT
-            c.servicio_area AS "Servicio Brindado",
-            COUNT(DISTINCT c.id_paciente) AS "Conteo No. Pacientes"
-        FROM
-            citas c
-        WHERE
-            c.servicio_area IN (
-                'Terapeuta Fisico',
-                'Terapeuta Autismo',
-                'Terapeuta Lenguaje',
-                'Psicologia', 
-                'Médico'
-            )
-            -- 4 = Puntual, 5 = Tardía (solo contar pacientes que asistieron)
-            AND c.asistencia IN (4, 5) 
-            ${fechaFilterSql} -- AQUI SE INYECTA EL FILTRO
-        GROUP BY
-            c.servicio_area
-        ORDER BY
-            "Servicio Brindado";
-    `;
-
-    const result = await client.query(sql, params);
-    return result.rows;
-}
-
-// --- Función helper para generar el reporte Excel (Antiguo) ---
-async function generateExcelReport(data, fileName, filterInfo) {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Reporte de Citas');
-
-    // ESTILO DE ENCABEZADO PARA TABLA COMPLEJA
-    const headerStyle = {
-        font: { bold: true, color: { argb: 'FFFFFFFF' } }, // Texto blanco
-        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F81BD' } }, // Azul oscuro
-        alignment: { vertical: 'middle', horizontal: 'center' }, // Centrado
-        border: { 
-            top: { style: 'thin' }, 
-            left: { style: 'thin' }, 
-            bottom: { style: 'thin' }, 
-            right: { style: 'thin' } 
-        }
-    };
-    // ESTILO DE CELDAS DE DATOS
-    const dataStyle = {
-        alignment: { vertical: 'middle', horizontal: 'center' }, // Centrado de texto
-        border: { 
-            top: { style: 'thin', color: { argb: 'FFD9D9D9' } }, // Borde gris claro
-            left: { style: 'thin', color: { argb: 'FFD9D9D9' } }, 
-            bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } }, 
-            right: { style: 'thin', color: { argb: 'FFD9D9D9' } } 
-        }
-    };
-    // Configuración de columnas (incluye estilo para centrar encabezados)
-    worksheet.columns = [
-        { header: 'ID Paciente', key: 'id_paciente', width: 15, style: headerStyle },
-        { header: 'Paciente', key: 'nombre_paciente', width: 30, style: headerStyle },
-        { header: 'Fecha Cita', key: 'fecha', width: 15, style: headerStyle },
-        { header: 'Inicio', key: 'hora_inicio', width: 10, style: headerStyle },
-        { header: 'Fin', key: 'hora_fin', width: 10, style: headerStyle },
-        { header: 'Tratante', key: 'nombre_tratante', width: 30, style: headerStyle },
-        { header: 'Servicio', key: 'servicio_area', width: 20, style: headerStyle },
-        { header: 'Estatus', key: 'estatus', width: 15, style: headerStyle },
-        { header: 'Tipo', key: 'tipo_cita', width: 8, style: headerStyle },
-        { header: 'Pago', key: 'pago', width: 10, style: { numFmt: '"\$"#,##0.00', ...headerStyle } },
-    ];
-
-    // Fila de Título del Reporte
-    worksheet.mergeCells('A1:J1');
-    worksheet.getCell('A1').value = `REPORTE DE CITAS: ${filterInfo} (${data.length} Registros)`;
-    worksheet.getCell('A1').font = { bold: true, size: 14 };
-    worksheet.getCell('A1').alignment = { vertical: 'middle', horizontal: 'center' };
-
-    worksheet.addRow([]); // Fila vacía
-    worksheet.addRow(worksheet.columns.map(col => col.header)); // Fila de encabezados reales (fila 3)
-    
-    // Aplicar estilo de encabezado a la fila 3
-    for (let i = 1; i <= worksheet.columns.length; i++) {
-        worksheet.getCell(3, i).style = headerStyle;
-    }
-
-    // Agregar datos y aplicar estilo
-    let rowIndex = 4;
-    data.forEach(row => {
-        const formattedRow = {
-            ...row,
-            fecha: row.fecha ? row.fecha.toISOString().split('T')[0] : '', // Formato YYYY-MM-DD
-        };
-        const newRow = worksheet.addRow(formattedRow);
-        
-        // Aplicar estilo de datos a toda la fila, centrado para todas las celdas
-        newRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
-            // Estilo general para centrado y bordes
-            cell.style = { ...cell.style, ...dataStyle };
-            
-            // Excepción para el nombre del paciente y tratante (justificado a la izquierda si lo prefieres)
-            if (colNumber === 2 || colNumber === 6) { 
-                cell.alignment = { vertical: 'middle', horizontal: 'left' };
-            } 
-            
-            // Ajustar el formato de número de pago
-            if (colNumber === 10) {
-                cell.numFmt = '"\$"#,##0.00';
-            }
-        });
-        rowIndex++;
-    });
-    const filePath = path.join(reportsDir, `${fileName}.xlsx`);
-    await workbook.xlsx.writeFile(filePath);
-    return filePath;
-}
-
-// -----------------------------------------------------------------
-// NUEVA FUNCIÓN PARA GENERAR EL REPORTE DE CONTEO EN EXCEL (SIN COLOR NI ESTILO DE TABLA)
-// -----------------------------------------------------------------
-async function generateServiceCountExcel(data, fileName, filterInfo) {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Conteo de Servicios');
-    
-    // ESTILO DE ENCABEZADO SIMPLE (Solo negrita y centrado)
-    const headerStyle = {
-        font: { bold: true, color: { argb: 'FF000000' } }, // Texto Negro
-        alignment: { vertical: 'middle', horizontal: 'center' }, // Centrado
-        // Se omiten bordes y relleno
-    };
-    
-    // ESTILO BASE DE CELDAS DE DATOS SIMPLE (Solo centrado)
-    const dataStyleBase = {
-        alignment: { vertical: 'middle', horizontal: 'center' }, // Centrado de texto
-        font: { color: { argb: 'FF000000' } }, // Texto negro
-        // Se omiten bordes y relleno
-    };
-
-    // Definición de Columnas con el estilo de encabezado
-    worksheet.columns = [
-        { header: 'SERVICIO BRINDADO', key: 'Servicio Brindado', width: 35 },
-        { header: 'CONTEO NO. PACIENTES', key: 'Conteo No. Pacientes', width: 30 }, 
-    ];
-
-    // Fila de Título del Reporte (Fila 1)
-    worksheet.mergeCells('A1:B1');
-    const titleCell = worksheet.getCell('A1');
-    titleCell.value = `REPORTE DE CONTEO: ${filterInfo}`;
-    titleCell.font = { bold: true, size: 14, color: { argb: 'FF000000' } };
-    titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
-    
-    worksheet.addRow([]); // Fila vacía (Fila 2)
-    
-    // Fila de encabezados reales (Fila 3)
-    const headerRow = worksheet.addRow(worksheet.columns.map(col => col.header)); 
-    
-    // Aplicar estilo de encabezado a la fila 3
-    headerRow.eachCell({ includeEmpty: false }, (cell) => {
-        // Aplicamos el estilo de texto y centrado
-        cell.font = headerStyle.font;
-        cell.alignment = headerStyle.alignment;
-    });
-
-    // Agregar datos y aplicar estilo de datos
-    data.forEach((row, index) => {
-        const newRow = worksheet.addRow(row);
-        
-        newRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
-            // Aplicar estilo base (solo centrado)
-            cell.font = dataStyleBase.font;
-            cell.alignment = dataStyleBase.alignment;
-        });
-    });
-    
-    const filePath = path.join(reportsDir, `${fileName}.xlsx`);
-    await workbook.xlsx.writeFile(filePath);
-    return filePath;
-}
-
-// -----------------------------------------------------------
-// 📈 RUTA 1: Reporte de Conteo de Pacientes por Servicio (DATA FETCH)
-// (CORREGIDA PARA ACEPTAR FILTROS DE FECHA)
-// -----------------------------------------------------------
-app.get("/reporte-conteo-servicios", async (req, res) => {
-    const { type, year, month } = req.query;
-
-    if (!type || !year) {
-        return res.status(400).json({ error: "Faltan parámetros 'type' o 'year'." });
-    }
-
-    const client = await pool.connect();
-    try {
-        const conteosBdRows = await queryServiceCountData(client, type, year, month);
-
-        const serviciosRequeridos = [
-            'Terapeuta Fisico',
-            'Terapeuta Autismo',
-            'Terapeuta Lenguaje',
-            'Psicologia',
-            'Médico'
-       ];
-        const conteosBd = conteosBdRows.reduce((map, row) => {
-            map[row["Servicio Brindado"]] = parseInt(row["Conteo No. Pacientes"]); 
-            return map;
-        }, {});
-        const respuestaFinal = serviciosRequeridos.map(servicio => ({
-            "Servicio Brindado": servicio,
-            "Conteo No. Pacientes": conteosBd[servicio] || 0
-        }));
-        res.status(200).json(respuestaFinal);
-
-    } catch (error) {
-        console.error("🔥 Error en /reporte-conteo-servicios:", error);
-        res.status(500).json({ error: "Error al generar el conteo de servicios", detalle: error.message });
-    } finally {
-        client.release();
-    }
-});
-
-// -----------------------------------------------------------
-// 📊 RUTA 2: GENERACIÓN DE ARCHIVO DE CONTEO (CORREGIDA PARA NOMBRE CORTO)
-// -----------------------------------------------------------
-app.post("/generate-service-count-report", async (req, res) => {
-    const { reportData, filterInfo } = req.body; 
-
-    if (!reportData || reportData.length === 0) {
-        return res.status(400).json({ error: "No se recibieron datos de conteo para generar el archivo." });
-    }
-
-    try {
-        const cleanFilterName = filterInfo
-                                    .toLowerCase()
-                                    .replace('/', '_')
-                                    .replace(/[^a-z0-9_]/g, ''); 
-                                    
-        const fileNameBase = `conteo_servicios_${cleanFilterName}`;
-        const serverBaseUrl = "http://localhost:3000"; 
-        
-        await generateServiceCountExcel(reportData, fileNameBase, filterInfo);
-        
-        const pdfFileName = `${fileNameBase}.pdf`;
-        fs.writeFileSync(path.join(reportsDir, pdfFileName), `Documento PDF simulado para el reporte de conteo.`);
-        const pdfUrl = `${serverBaseUrl}/reports/${pdfFileName}`;
-        const excelUrl = `${serverBaseUrl}/reports/${fileNameBase}.xlsx`;
-        console.log(`✅ Reporte de Conteo Excel generado.`);
-        res.status(200).json({
-            message: "Reporte de conteo generado con éxito.",
-            pdfUrl: pdfUrl,
-            excelUrl: excelUrl,
-        });
-    } catch (error) {
-        console.error("🔥 Error fatal en /generate-service-count-report:", error);
-        res.status(500).json({ error: "Error al generar el reporte de conteo", detalle: error.message });
-    }
-});
-
-// -----------------------------------------------------------
-// 👁️ RUTA: VISTA PREVIA DE DATOS (PREVIEW) - Método GET (Antigua)
-// -----------------------------------------------------------
-app.get("/preview-report-data", async (req, res) => {
-    const { type, year, month, area } = req.query;
-    
-    if (!type || !year) {
-        return res.status(400).json({ error: "Faltan parámetros 'type' o 'year'." });
-    }
-
-    const client = await pool.connect();
-    try {
-        const previewData = await queryReportData(client, type, year, month, area, true);
-        
-        if (previewData.length === 0) {
-            return res.status(404).json({ 
-                error: "No se encontraron datos para la vista previa.", 
-            });
-        }
-        res.status(200).json(previewData);
-
-    } catch (error) {
-        console.error("🔥 Error en /preview-report-data:", error);
-        res.status(500).json({ error: "Error al obtener la vista previa", detalle: error.message });
-    } finally {
-        client.release();
-    }
-});
 
 // -----------------------------------------------------------
 // 📊 RUTA DE GENERACIÓN DE REPORTES (GENERATE) - Método POST (Antigua)

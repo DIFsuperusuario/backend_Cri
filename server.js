@@ -33,30 +33,32 @@ app.use('/reports', express.static(reportsDir));
 // 4. CONEXIÓN MAESTRA A POSTGRES (Blindada para el Proxy)
 // -----------------------------------------------------------
 // -----------------------------------------------------------
-// 4. CONEXIÓN MAESTRA (AJUSTE PARA ECONNRESET)
+// 4. CONEXIÓN MAESTRA (VERSIÓN ANTIFALLOS)
 // -----------------------------------------------------------
 const pool = new Pool({
-  // Usamos EXACTAMENTE la variable que elegiste en Railway
+  // Usamos la variable que vinculamos (DATABASE_PUBLIC_URL)
   connectionString: process.env.DATABASE_PUBLIC_URL, 
   
-  // Forzamos el SSL de esta manera para que el Proxy no nos rechace
   ssl: {
     rejectUnauthorized: false
   },
-  // Agregamos un pequeño delay de espera para el apretón de manos (handshake)
-  connectionTimeoutMillis: 5000, 
+
+  // --- PARÁMETROS CRÍTICOS PARA EL PROXY ---
+  connectionTimeoutMillis: 20000, // Le damos 20 seg para conectar (antes de que muera)
+  idleTimeoutMillis: 30000,       // Tiempo antes de cerrar una conexión inactiva
+  max: 10,                        // Máximo de conexiones simultáneas
+  allowExitOnIdle: true           // Permite que el proceso termine si no hay uso
 });
 
-// TEST DE CONEXIÓN
+// TEST DE CONEXIÓN CON REINTENTO
+console.log('⏳ Intentando conectar al Proxy de Railway...');
+
 pool.connect((err, client, release) => {
   if (err) {
-    console.error('❌ ERROR REAL:', err.message);
-    // Si el error persiste, imprimimos si la variable llegó (sin mostrar la clave)
-    if (!process.env.DATABASE_PUBLIC_URL) {
-       console.log('⚠️ OJO: La variable DATABASE_PUBLIC_URL está vacía en el servidor');
-    }
+    console.error('❌ ERROR REAL DE CONEXIÓN:', err.message);
+    console.log('👉 Tip: Verifica que en Railway la variable DATABASE_PUBLIC_URL sea la que tiene el puerto 11634');
   } else {
-    console.log('✅ ¡POR FIN! CONECTADO AL PROXY PÚBLICO');
+    console.log('✅ ✅ ✅ ¡CONECTADO EXITOSAMENTE AL PROXY PÚBLICO! ✅ ✅ ✅');
     if (client) release();
   }
 });

@@ -101,10 +101,21 @@ async function queryReportData(client, type, year, month, area, limitRows = fals
         throw new Error("Filtros de fecha no válidos.");
     }
     
-    // --- 2. FILTRO DE ÁREA (CON TRIM) ---
+// --- 2. FILTRO DE ÁREA "INTELIGENTE" (JavaScript hace el trabajo) ---
     if (area && area !== 'TODOS') {
-        sql += ` AND c.servicio_area = $${filterIndex++}`;
-        params.push(area.trim()); // .trim() quita espacios accidentales al inicio/final
+        // 1. Original (ej. "Terapeuta Físico")
+        const areaOriginal = area.trim();
+        
+        // 2. Sin Acentos (ej. "Terapeuta Fisico")
+        // Esta linea mágica de JS quita los acentos de forma segura
+        const areaSinAcentos = areaOriginal.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+        // SQL: "Búscame si el área coincide con la original O con la versión sin acentos"
+        // Usamos LOWER para ignorar mayúsculas/minúsculas también.
+        sql += ` AND (LOWER(c.servicio_area) = LOWER($${filterIndex++}) OR LOWER(c.servicio_area) = LOWER($${filterIndex++}))`;
+        
+        // Enviamos ambas opciones
+        params.push(areaOriginal, areaSinAcentos);
     }
 
     // Ordenar por fecha y hora para que la matriz se llene en orden

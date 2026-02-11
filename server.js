@@ -175,87 +175,173 @@ async function queryServiceCountData(client, type, year, month) {
     return result.rows;
 }
 
-// --- Función helper para generar el reporte Excel (Antiguo) ---
+// -----------------------------------------------------------------
+// FUNCIÓN MAESTRA: Generar Excel Tipo Matriz (Visualmente igual a la App)
+// -----------------------------------------------------------------
 async function generateExcelReport(data, fileName, filterInfo) {
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Reporte de Citas');
-
-    // ESTILO DE ENCABEZADO PARA TABLA COMPLEJA
-    const headerStyle = {
-        font: { bold: true, color: { argb: 'FFFFFFFF' } }, // Texto blanco
-        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F81BD' } }, // Azul oscuro
-        alignment: { vertical: 'middle', horizontal: 'center' }, // Centrado
-        border: { 
-            top: { style: 'thin' }, 
-            left: { style: 'thin' }, 
-            bottom: { style: 'thin' }, 
-            right: { style: 'thin' } 
-        }
-    };
-    // ESTILO DE CELDAS DE DATOS
-    const dataStyle = {
-        alignment: { vertical: 'middle', horizontal: 'center' }, // Centrado de texto
-        border: { 
-            top: { style: 'thin', color: { argb: 'FFD9D9D9' } }, // Borde gris claro
-            left: { style: 'thin', color: { argb: 'FFD9D9D9' } }, 
-            bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } }, 
-            right: { style: 'thin', color: { argb: 'FFD9D9D9' } } 
-        }
-    };
-    // Configuración de columnas (incluye estilo para centrar encabezados)
-    worksheet.columns = [
-        { header: 'ID Paciente', key: 'id_paciente', width: 15, style: headerStyle },
-        { header: 'Paciente', key: 'nombre_paciente', width: 30, style: headerStyle },
-        { header: 'Fecha Cita', key: 'fecha', width: 15, style: headerStyle },
-        { header: 'Inicio', key: 'hora_inicio', width: 10, style: headerStyle },
-        { header: 'Fin', key: 'hora_fin', width: 10, style: headerStyle },
-        { header: 'Tratante', key: 'nombre_tratante', width: 30, style: headerStyle },
-        { header: 'Servicio', key: 'servicio_area', width: 20, style: headerStyle },
-        { header: 'Estatus', key: 'estatus', width: 15, style: headerStyle },
-        { header: 'Tipo', key: 'tipo_cita', width: 8, style: headerStyle },
-        { header: 'Pago', key: 'pago', width: 10, style: { numFmt: '"\$"#,##0.00', ...headerStyle } },
-    ];
-
-    // Fila de Título del Reporte
-    worksheet.mergeCells('A1:J1');
-    worksheet.getCell('A1').value = `REPORTE DE CITAS: ${filterInfo} (${data.length} Registros)`;
-    worksheet.getCell('A1').font = { bold: true, size: 14 };
-    worksheet.getCell('A1').alignment = { vertical: 'middle', horizontal: 'center' };
-
-    worksheet.addRow([]); // Fila vacía
-    worksheet.addRow(worksheet.columns.map(col => col.header)); // Fila de encabezados reales (fila 3)
     
-    // Aplicar estilo de encabezado a la fila 3
-    for (let i = 1; i <= worksheet.columns.length; i++) {
-        worksheet.getCell(3, i).style = headerStyle;
+    // 1. Agrupar datos por Terapeuta
+    const porTerapeuta = {};
+    data.forEach(cita => {
+        const terapeuta = cita.nombre_tratante || 'SIN ASIGNAR';
+        if (!porTerapeuta[terapeuta]) porTerapeuta[terapeuta] = [];
+        porTerapeuta[terapeuta].push(cita);
+    });
+
+    // 2. Colores (ARGB) - Mismos que tu App
+    const colors = {
+        rosa: 'FFFF69B4',    // Justificada
+        rojo: 'FFFF0000',    // Injustificada
+        naranja: 'FFFFA500', // Falla Tratante
+        verde: 'FF00B050',   // Asistió
+        gris: 'FFBFBFBF',    // Pendiente
+        azulHeader: 'FF4472C4', // Azul Cabecera
+        azulTotal: 'FFD9E1F2',  // Azul clarito para Totales
+        blanco: 'FFFFFFFF',
+        negro: 'FF000000'
+    };
+
+    // Estilos Base
+    const borderStyle = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+    const centerStyle = { vertical: 'middle', horizontal: 'center' };
+
+    // --- PROCESAR CADA TERAPEUTA EN UNA HOJA O BLOQUE ---
+    // (Aquí lo haremos todo en una sola hoja, separada por bloques, como en la app)
+    const worksheet = workbook.addWorksheet('Matriz de Asistencia');
+
+    // Título Principal
+    worksheet.mergeCells('A1:AG1'); // Abarca hasta el día 31 aprox
+    const titleCell = worksheet.getCell('A1');
+    titleCell.value = `REPORTE DE ASISTENCIAS: ${filterInfo}`;
+    titleCell.font = { bold: true, size: 14, color: { argb: colors.blanco } };
+    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.azulHeader } };
+    titleCell.alignment = centerStyle;
+
+    // Leyenda
+    worksheet.mergeCells('A2:AG2');
+    const legendCell = worksheet.getCell('A2');
+    legendCell.value = "LEYENDA: Rosa=Justificada | Rojo=Injustificada | Naranja=Falla Tratante | Verde=Asistió | Gris=Pendiente";
+    legendCell.alignment = centerStyle;
+    legendCell.font = { bold: true, color: { argb: 'FF555555' } };
+
+    let currentRow = 4; // Empezamos en la fila 4
+
+    // --- ITERAR POR CADA TERAPEUTA ---
+    for (const [nombreTerapeuta, citas] of Object.entries(porTerapeuta)) {
+        
+        // A. Encabezado del Terapeuta
+        worksheet.mergeCells(`A${currentRow}:AG${currentRow}`);
+        const terapeutaCell = worksheet.getCell(`A${currentRow}`);
+        terapeutaCell.value = `TERAPEUTA: ${nombreTerapeuta.toUpperCase()}`;
+        terapeutaCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.azulHeader } };
+        terapeutaCell.font = { bold: true, color: { argb: colors.blanco } };
+        terapeutaCell.alignment = centerStyle;
+        currentRow++;
+
+        // B. Encabezados de Días (Paciente, 1, 2, ..., 31, TOTAL)
+        const headerRow = worksheet.getRow(currentRow);
+        headerRow.getCell(1).value = "PACIENTE"; // Columna A
+        
+        // Días 1 al 31
+        for (let i = 1; i <= 31; i++) {
+            headerRow.getCell(i + 1).value = i;
+        }
+        headerRow.getCell(33).value = "TOTAL"; // Columna AG (33)
+
+        // Estilo de encabezados
+        for (let i = 1; i <= 33; i++) {
+            const cell = headerRow.getCell(i);
+            cell.font = { bold: true };
+            cell.alignment = centerStyle;
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } }; // Gris claro
+            cell.border = borderStyle;
+        }
+        
+        // Ajustar ancho columna Paciente
+        worksheet.getColumn(1).width = 35;
+        // Ajustar ancho columnas días
+        for (let i = 2; i <= 32; i++) {
+            worksheet.getColumn(i).width = 5; 
+        }
+        worksheet.getColumn(33).width = 12; // Ancho Total
+
+        currentRow++;
+
+        // C. Procesar Matriz de Pacientes para este Terapeuta
+        const matrizPacientes = {};
+        
+        citas.forEach(c => {
+            const paciente = c.nombre_paciente;
+            if (!matrizPacientes[paciente]) matrizPacientes[paciente] = {};
+            
+            // Extraer día
+            let dia = 0;
+            if (c.fecha) {
+                const fechaStr = c.fecha.toISOString().split('T')[0]; // YYYY-MM-DD
+                dia = parseInt(fechaStr.split('-')[2]);
+            }
+            if (dia > 0) matrizPacientes[paciente][dia] = c;
+        });
+
+        // D. Pintar Filas de Pacientes
+        for (const [nombrePac, diasCitas] of Object.entries(matrizPacientes)) {
+            const row = worksheet.getRow(currentRow);
+            
+            // Nombre Paciente
+            const cellNombre = row.getCell(1);
+            cellNombre.value = nombrePac;
+            cellNombre.border = borderStyle;
+            cellNombre.alignment = { vertical: 'middle', horizontal: 'left' };
+
+            let totalDinero = 0;
+
+            // Celdas de Días (1 al 31)
+            for (let dia = 1; dia <= 31; dia++) {
+                const cell = row.getCell(dia + 1);
+                const cita = diasCitas[dia];
+                
+                cell.border = borderStyle;
+                cell.alignment = centerStyle;
+
+                if (cita) {
+                    const pago = parseFloat(cita.pago || 0);
+                    const asis = parseInt(cita.asistencia || 0);
+                    totalDinero += pago;
+
+                    cell.value = pago;
+                    cell.numFmt = '"$"#,##0'; // Formato moneda sin decimales para ahorrar espacio
+
+                    // COLORES (Lógica idéntica a Flutter)
+                    let bgColor = colors.gris;
+                    let fontColor = colors.negro;
+
+                    if (asis === 1) { bgColor = colors.rosa; fontColor = colors.negro; }
+                    else if (asis === 2) { bgColor = colors.rojo; fontColor = colors.blanco; }
+                    else if (asis === 3) { bgColor = colors.naranja; fontColor = colors.blanco; }
+                    else if (asis === 4 || asis === 5) { bgColor = colors.verde; fontColor = colors.blanco; }
+                    else { bgColor = colors.gris; fontColor = colors.blanco; } // 0 o null
+
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+                    cell.font = { color: { argb: fontColor }, size: 9, bold: true };
+                }
+            }
+
+            // Celda TOTAL
+            const cellTotal = row.getCell(33);
+            cellTotal.value = totalDinero;
+            cellTotal.numFmt = '"$"#,##0';
+            cellTotal.font = { bold: true, color: { argb: 'FF000000' } };
+            cellTotal.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors.azulTotal } };
+            cellTotal.border = borderStyle;
+            cellTotal.alignment = centerStyle;
+
+            currentRow++;
+        }
+
+        currentRow += 2; // Espacio entre terapeutas
     }
 
-    // Agregar datos y aplicar estilo
-    let rowIndex = 4;
-    data.forEach(row => {
-        const formattedRow = {
-            ...row,
-            fecha: row.fecha ? row.fecha.toISOString().split('T')[0] : '', // Formato YYYY-MM-DD
-        };
-        const newRow = worksheet.addRow(formattedRow);
-        
-        // Aplicar estilo de datos a toda la fila, centrado para todas las celdas
-        newRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
-            // Estilo general para centrado y bordes
-            cell.style = { ...cell.style, ...dataStyle };
-            
-            // Excepción para el nombre del paciente y tratante (justificado a la izquierda si lo prefieres)
-            if (colNumber === 2 || colNumber === 6) { 
-                cell.alignment = { vertical: 'middle', horizontal: 'left' };
-            } 
-            
-            // Ajustar el formato de número de pago
-            if (colNumber === 10) {
-                cell.numFmt = '"\$"#,##0.00';
-            }
-        });
-        rowIndex++;
-    });
     const filePath = path.join(reportsDir, `${fileName}.xlsx`);
     await workbook.xlsx.writeFile(filePath);
     return filePath;

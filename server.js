@@ -1,72 +1,51 @@
-require('dotenv').config(); 
+require('dotenv').config(); // 1. Configuración de entorno (Siempre primero)
 
-const express = require("express"); 
-const cors = require("cors");       
+const express = require("express"); // 2. Importar Express
+const cors = require("cors");       // 3. Importar Cors
 const { Pool } = require("pg");
 const bcrypt = require("bcrypt");
 const fs = require('fs');       
 const path = require('path');   
 const ExcelJS = require('exceljs');
 
+// 4. CREAR LA APP (¡Vital hacer esto antes de usarla!)
 const app = express(); 
 
-// 1. MIDDLEWARES
-app.use(cors());          
-app.use(express.json());  
+// 5. ACTIVAR MIDDLEWARES (Aquí van Cors y JSON)
+app.use(cors());          // <--- ¡Ahora sí! Deja pasar a todos (CORS)
+app.use(express.json());  // <--- Permite leer JSON en las peticiones
 
+// 6. PUERTO
 const PORT = process.env.PORT || 3000;
 
-// 2. CONFIGURACIÓN DE URL DINÁMICA
-let BASE_URL = `http://localhost:${PORT}`;
-if (process.env.RAILWAY_PUBLIC_DOMAIN) {
-    BASE_URL = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
-}
 
-// 3. CARPETA DE REPORTES
+
+// ---------------------------
+// Configuración para servir archivos estáticos (Reportes)
+// ---------------------------
 const reportsDir = path.join(__dirname, 'reports');
 if (!fs.existsSync(reportsDir)) {
     fs.mkdirSync(reportsDir); 
 }
-app.use('/reports', express.static(reportsDir));
 
-// -----------------------------------------------------------
-// 4. CONEXIÓN MAESTRA A POSTGRES
-// -----------------------------------------------------------
-// -----------------------------------------------------------
-// 4. CONEXIÓN MAESTRA A POSTGRES (CORREGIDA)
-// -----------------------------------------------------------
+app.use('/reports', express.static(reportsDir));
+app.use(cors());
+app.use(express.json());
+
+// ---------------------------
+// Conexión a PostgreSQL (Modo Híbrido: Local y Nube)
+// ---------------------------
 const pool = new Pool({
-  // Borramos todo lo demás para que no haya conflicto.
-  // Solo necesitamos la variable maestra que ya configuraste en Railway.
-  connectionString: process.env.DATABASE_URL, 
-  
+  user: process.env.DB_USER,
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  password: process.env.DB_PASSWORD,
+  port: process.env.DB_PORT,
+  // Esta línea es vital para conectarte desde tu casa a Railway
   ssl: {
     rejectUnauthorized: false
   }
 });
-
-// Test de conexión (Esto te dirá el log "✅" si ya quedó)
-pool.connect((err, client, release) => {
-  if (err) {
-    console.error('❌ Error de conexión:', err.message);
-  } else {
-    console.log('✅ BASE DE DATOS CONECTADA Y LISTA');
-    if (client) release();
-  }
-});
-
-console.log(`🌍 Servidor configurado en: ${BASE_URL}`);
-
-// Test de conexión para logs
-pool.connect((err, client, release) => {
-  if (err) {
-    console.error('❌ Error de conexión:', err.message);
-  } else {
-    console.log('✅ Base de Datos Conectada');
-    release();
-  }
-});
-
 /////////////////////////////adrian//////////////////////////////////////////////////////////////////////////////
 // -----------------------------------------------------------------
 // FUNCIÓN CENTRAL: Consulta de Datos de Reporte (CON FILTRO DE ÁREA)

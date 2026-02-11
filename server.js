@@ -51,6 +51,9 @@ const pool = new Pool({
 // -----------------------------------------------------------------
 // En server.js, busca la función queryReportData y agrega la línea marcada:
 
+// -----------------------------------------------------------------
+// FUNCIÓN CENTRAL: Consulta de Datos de Reporte (CORREGIDA)
+// -----------------------------------------------------------------
 async function queryReportData(client, type, year, month, area, limitRows = false) {
     let sql = `
         SELECT 
@@ -59,55 +62,59 @@ async function queryReportData(client, type, year, month, area, limitRows = fals
             c.fecha,
             TO_CHAR(c.hora_inicio, 'HH24:MI') AS hora_inicio,
             TO_CHAR(c.hora_fin, 'HH24:MI') AS hora_fin,
-            pe.nombre AS nombre_tratante,
+            pe.nombre AS nombre_tratante, 
             c.servicio_area,
             c.estatus,
-            c.asistencia,  -- <--- ¡AGREGA ESTA LÍNEA! (Sin esto, Dart no sabe el color)
+            c.asistencia,  -- <--- IMPORTANTE: Necesario para los colores en Flutter
             c.pago,
             c.motivo_pago,
             c.tipo_cita
         FROM citas c
         JOIN paciente p ON c.id_paciente = p.id_paciente
-        JOIN personal pe ON c.id_personal = pe.id_personal
+        LEFT JOIN personal pe ON c.id_personal = pe.id_personal -- <--- CAMBIO CLAVE: LEFT JOIN
         WHERE 1=1 
     `;
-    // ... resto del código ...
+    // Nota sobre LEFT JOIN: 
+    // Usamos LEFT JOIN para que traiga la cita AUNQUE no tenga terapeuta asignado todavía.
+    // Si usas solo JOIN, las citas futuras sin doctor se borrarían del reporte.
+
     let params = [];
     let filterIndex = 1;
 
-    // --- 1. FILTRO DE FECHAS ---
+    // --- 1. FILTRO DE FECHAS ROBUSTO ---
     if (type === 'mensual' && month) {
+        // Truco: Para asegurar que tomamos todo el mes, calculamos primer y último día
         const fechaInicio = `${year}-${month}-01`;
-        const lastDay = new Date(year, parseInt(month), 0).getDate(); 
+        const lastDay = new Date(year, month, 0).getDate(); // Mes exacto
         const fechaFin = `${year}-${month}-${lastDay}`;
         
-        sql += ` AND c.fecha BETWEEN $${filterIndex++} AND $${filterIndex++}`;
+        sql += ` AND c.fecha >= $${filterIndex++} AND c.fecha <= $${filterIndex++}`;
         params.push(fechaInicio, fechaFin);
         
     } else if (type === 'anual') {
         const fechaInicio = `${year}-01-01`;
         const fechaFin = `${year}-12-31`;
         
-        sql += ` AND c.fecha BETWEEN $${filterIndex++} AND $${filterIndex++}`;
+        sql += ` AND c.fecha >= $${filterIndex++} AND c.fecha <= $${filterIndex++}`;
         params.push(fechaInicio, fechaFin);
     } else {
         throw new Error("Filtros de fecha no válidos.");
     }
     
-    // --- 2. NUEVO FILTRO DE ÁREA ---
-    // Si viene un área y NO es 'TODOS', filtramos.
+    // --- 2. FILTRO DE ÁREA (CON TRIM) ---
     if (area && area !== 'TODOS') {
         sql += ` AND c.servicio_area = $${filterIndex++}`;
-        params.push(area);
+        params.push(area.trim()); // .trim() quita espacios accidentales al inicio/final
     }
 
+    // Ordenar por fecha y hora para que la matriz se llene en orden
     sql += ` ORDER BY c.fecha ASC, c.hora_inicio ASC`;
     
-    // Aplicar límite si es para vista previa
     if (limitRows) {
-        sql += ` LIMIT 20`;
+        sql += ` LIMIT 50`; // Subí el límite un poco para que veas más datos en la preview
     }
 
+    console.log(`🔍 Ejecutando SQL para Área: ${area || 'TODOS'}`); // Log para depurar
     const result = await client.query(sql, params);
     return result.rows;
 }

@@ -49,9 +49,10 @@ const pool = new Pool({
 
 /////////////////////////////adrian//////////////////////////////////////////////////////////////////////////////
 // -----------------------------------------------------------------
-// FUNCIÓN CENTRAL: Consulta de Datos de Reporte (Antigua)
+// FUNCIÓN CENTRAL: Consulta de Datos de Reporte (ACTUALIZADA CON ÁREA)
 // -----------------------------------------------------------------
-async function queryReportData(client, type, year, month, limitRows = false) {
+// Nota: Agregamos el parámetro 'area' antes de 'limitRows'
+async function queryReportData(client, type, year, month, area, limitRows = false) {
     let sql = `
         SELECT 
             p.id_paciente,
@@ -73,7 +74,7 @@ async function queryReportData(client, type, year, month, limitRows = false) {
     let params = [];
     let filterIndex = 1;
 
-    // --- LÓGICA DE FILTRADO DE FECHAS (Genera YYYY-MM-DD) ---
+    // --- 1. FILTRO DE FECHAS ---
     if (type === 'mensual' && month) {
         const fechaInicio = `${year}-${month}-01`;
         const lastDay = new Date(year, parseInt(month), 0).getDate(); 
@@ -92,7 +93,15 @@ async function queryReportData(client, type, year, month, limitRows = false) {
         throw new Error("Filtros de fecha no válidos.");
     }
     
+    // --- 2. NUEVO FILTRO DE ÁREA ---
+    // Si viene un área y NO es 'TODOS', filtramos.
+    if (area && area !== 'TODOS') {
+        sql += ` AND c.servicio_area = $${filterIndex++}`;
+        params.push(area);
+    }
+
     sql += ` ORDER BY c.fecha ASC, c.hora_inicio ASC`;
+    
     // Aplicar límite si es para vista previa
     if (limitRows) {
         sql += ` LIMIT 20`;
@@ -384,10 +393,11 @@ app.post("/generate-service-count-report", async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// 👁️ RUTA: VISTA PREVIA DE DATOS (PREVIEW) - Método GET (Antigua)
+// 👁️ RUTA: VISTA PREVIA DE DATOS (PREVIEW) - Método GET
 // -----------------------------------------------------------
 app.get("/preview-report-data", async (req, res) => {
-    const { type, year, month } = req.query;
+    // 1. Recibimos 'area' desde la URL
+    const { type, year, month, area } = req.query; 
     
     if (!type || !year) {
         return res.status(400).json({ error: "Faltan parámetros 'type' o 'year'." });
@@ -395,7 +405,11 @@ app.get("/preview-report-data", async (req, res) => {
 
     const client = await pool.connect();
     try {
-        const previewData = await queryReportData(client, type, year, month, true);
+        // 2. Pasamos 'area' a la función (el true final es el limitRows)
+        const previewData = await queryReportData(client, type, year, month, area, true);
+        
+        // (Opcional) Si quieres que devuelva array vacío en vez de error 404 cuando no hay datos:
+        // if (previewData.length === 0) return res.json([]); 
         
         if (previewData.length === 0) {
             return res.status(404).json({ 
@@ -413,10 +427,11 @@ app.get("/preview-report-data", async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// 📊 RUTA DE GENERACIÓN DE REPORTES (GENERATE) - Método POST (Antigua)
+// 📊 RUTA DE GENERACIÓN DE REPORTES (GENERATE) - Método POST
 // -----------------------------------------------------------
 app.post("/generate-report", async (req, res) => {
-    const { type, year, month } = req.body;
+    // 1. Recibimos 'area' del body
+    const { type, year, month, area } = req.body;
     
     if (!type || !year) {
         return res.status(400).json({ error: "Faltan parámetros 'type' o 'year'." });
@@ -424,12 +439,14 @@ app.post("/generate-report", async (req, res) => {
 
     const client = await pool.connect();
     try {
-        const reportData = await queryReportData(client, type, year, month, false);
+        // 2. Pasamos 'area' a la función de consulta (y false para no limitar filas)
+        // NOTA: Asegúrate de haber actualizado la función queryReportData como te dije arriba
+        const reportData = await queryReportData(client, type, year, month, area, false);
         
         if (reportData.length === 0) {
             return res.status(404).json({ 
                 error: "No se encontraron datos para generar el reporte.", 
-                detalle: "La base de datos no contiene citas en ese periodo." 
+                detalle: "La base de datos no contiene citas en ese periodo/área." 
             });
         }
         
@@ -438,43 +455,54 @@ app.post("/generate-report", async (req, res) => {
             'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
         ];
         
+        // --- 3. LOGICA DE NOMBRE DE ARCHIVO CON ÁREA ---
+        let areaPart = "";
+        if (area && area !== 'TODOS') {
+            // Quitamos espacios: "Terapeuta Fisico" -> "TerapeutaFisico"
+            areaPart = `_${area.replace(/\s+/g, '')}`; 
+        }
+
         let fileNameBase;
         let filterInfo;
+
         if (type === 'mensual' && month) {
             const monthIndex = parseInt(month, 10) - 1;
             const monthName = monthNames[monthIndex];
-            fileNameBase = `reporte_citas_${monthName}_${year}`; 
-            filterInfo = `${monthName.toUpperCase()}/${year}`;
+            fileNameBase = `reporte${areaPart}_${monthName}_${year}`; 
+            filterInfo = `${area ? area.toUpperCase() : 'GENERAL'} - ${monthName.toUpperCase()}/${year}`;
         } else if (type === 'anual') {
-            fileNameBase = `reporte_citas_anual_${year}`; 
-            filterInfo = `${year}`;
+            fileNameBase = `reporte${areaPart}_anual_${year}`; 
+            filterInfo = `${area ? area.toUpperCase() : 'GENERAL'} - ${year}`;
         } else {
             fileNameBase = `reporte_citas_general`; 
             filterInfo = 'General';
         }
 
-        const serverBaseUrl = "http://localhost:3000";
-        await generateExcelReport(reportData, fileNameBase, filterInfo);
-        const pdfFileName = `${fileNameBase}.pdf`;
-        fs.writeFileSync(path.join(reportsDir, pdfFileName), `Documento PDF simulado. Por favor, descargue el Excel.`);
+        // 🔥 AQUÍ ESTÁ EL CAMBIO CLAVE PARA RAILWAY 🔥
+        // Usamos tu URL de producción para que el link sea accesible desde cualquier lado
+        const serverBaseUrl = "https://backendcri-production.up.railway.app"; 
         
-        const pdfUrl = `${serverBaseUrl}/reports/${pdfFileName}`;
+        // Generamos el archivo físico en la carpeta /reports del servidor
+        await generateExcelReport(reportData, fileNameBase, filterInfo);
+        
+        // Construimos la URL pública de descarga
         const excelUrl = `${serverBaseUrl}/reports/${fileNameBase}.xlsx`;
-        console.log(`✅ Reporte Excel generado y PDF simulado. Registros: ${reportData.length}`);
+        
+        console.log(`✅ Reporte Excel generado: ${fileNameBase}.xlsx`);
         
         res.status(200).json({
             message: "Reporte generado con éxito.",
-            pdfUrl: pdfUrl,
-            excelUrl: excelUrl,
+            excelUrl: excelUrl, // Flutter recibirá: https://backendcri.../reports/archivo.xlsx
             dataCount: reportData.length,
         });
+
     } catch (error) {
         console.error("🔥 Error fatal en /generate-report:", error);
         res.status(500).json({ error: "Error al generar el reporte", detalle: error.message });
     } finally {
         client.release();
     }
-});
+});;
 
 
 // -----------------------------------------------------------
@@ -1647,19 +1675,7 @@ app.patch('/actualizar-asistencia', async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA: IMPREVISTOS (CORREGIDA: Filtra solo Activos) ---
-// -----------------------------------------------------------
-// -----------------------------------------------------------
-// --- RUTA: IMPREVISTOS (CORREGIDA: Filtra si ya tiene cita agendada) ---
-// -----------------------------------------------------------
-// -----------------------------------------------------------
-// --- RUTA: IMPREVISTOS (Con detector de Historial Previo) ---
-// -----------------------------------------------------------
-// -----------------------------------------------------------
-// --- RUTA: IMPREVISTOS (FINAL: Con Observaciones y Reagendados) ---
-// -----------------------------------------------------------
-// -----------------------------------------------------------
-// --- RUTA: IMPREVISTOS (CORREGIDA: Filtra por Nivel Actual) ---
+// --- RUTA: IMPREVISTOS DEFINITIVA (Faltas + Olvidos + Check de Recuperación) ---
 // -----------------------------------------------------------
 app.get("/pacientes-imprevistos", async (req, res) => {
   const client = await pool.connect();
@@ -1676,30 +1692,50 @@ app.get("/pacientes-imprevistos", async (req, res) => {
         c.num_programa,
         c.servicio_area,
         
-        -- Subconsultas (Historial y Observaciones)...
+        -- Etiqueta para el Front: ¿Fue falta o fue error de dedo?
+        CASE 
+            WHEN c.asistencia = 0 THEN 'Sin Estatus (Olvido)'
+            ELSE 'Falta/Cancelación'
+        END as motivo_detalle,
+
         (SELECT COUNT(*) > 0 FROM citas h WHERE h.id_paciente = p.id_paciente AND h.asistencia = 4) as tiene_historial,
         (SELECT hc.observaciones FROM historial_consultas hc WHERE hc.id_cita = c.id_cita LIMIT 1) as observaciones
 
       FROM citas c
       JOIN paciente p ON c.id_paciente = p.id_paciente
       JOIN personal per ON c.id_personal = per.id_personal
+      
       WHERE 
-        c.asistencia IN (1, 2, 3)       -- Faltas
-        AND p.estatus_paciente = 'Activo'
-        AND c.indice_val = 1 
-        AND (c.tipo_cita = 'V' OR c.tipo_cita = 'P') 
-        AND c.total_val = 1 
+        p.estatus_paciente = 'Activo'
         
-        -- 🔥 CORRECCIÓN CLAVE AQUÍ:
-        -- Solo mostrar la falta si coincide con el nivel actual del paciente.
-        -- Si el paciente ya subió a Nivel 2, la falta del Nivel 1 desaparece.
-        AND c.num_programa = p.num_programa_actual 
+        -- 1. SOLO PRIMERA VEZ / VALORACIÓN ÚNICA
+        AND (c.tipo_cita = 'V' OR c.tipo_cita = 'P') 
+        AND c.indice_val = 1 
+        AND c.total_val = 1 
 
-        AND NOT EXISTS (
-            SELECT 1 FROM citas c2 
-            WHERE c2.id_paciente = c.id_paciente 
-            AND c2.estatus = 'Agendada' 
+        -- 2. AQUÍ ESTÁ TU REGLA DEL "OLVIDO" 👇
+        -- Atrapa si tiene falta explicita OR si es Fantasma (0 y fecha pasada)
+        AND (
+            c.asistencia IN (1, 2, 3)
+            OR 
+            (c.asistencia = 0 AND c.fecha < CURRENT_DATE) -- <--- ¡AQUÍ ESTÁ!
         )
+
+        -- 3. EL PERDÓN (Solo si la historia continuó)
+        -- Si después de ese error/falta, el paciente ya tuvo otra cita (4)
+        -- o ya tiene una nueva agendada, entonces bórralo de la lista.
+        AND NOT EXISTS (
+            SELECT 1 FROM citas posterior 
+            WHERE posterior.id_paciente = c.id_paciente 
+            AND posterior.fecha > c.fecha  -- Buscamos citas DESPUÉS del error
+            AND (
+                posterior.asistencia = 4 -- Ya vino
+                OR posterior.estatus IN ('Agendada', 'Pendiente', 'Confirmada') -- Ya reagendó
+                OR posterior.asistencia = 0 -- Ya tiene una pendiente
+            )
+            AND posterior.estatus NOT IN ('Cancelada', 'Baja')
+        )
+
       ORDER BY c.fecha DESC;
     `;
     const result = await client.query(sql);

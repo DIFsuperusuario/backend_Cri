@@ -32,19 +32,32 @@ app.use('/reports', express.static(reportsDir));
 // -----------------------------------------------------------
 // 4. CONEXIÓN MAESTRA A POSTGRES (Blindada para el Proxy)
 // -----------------------------------------------------------
+// -----------------------------------------------------------
+// 4. CONEXIÓN MAESTRA (AJUSTE PARA ECONNRESET)
+// -----------------------------------------------------------
 const pool = new Pool({
-  // Prioridad 1: Usa la DATABASE_PUBLIC_URL que acabas de vincular en Railway
-  connectionString: process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL, 
+  // Usamos EXACTAMENTE la variable que elegiste en Railway
+  connectionString: process.env.DATABASE_PUBLIC_URL, 
   
-  // Prioridad 2: Fallback con tus variables de siempre (por si acaso)
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-
+  // Forzamos el SSL de esta manera para que el Proxy no nos rechace
   ssl: {
     rejectUnauthorized: false
+  },
+  // Agregamos un pequeño delay de espera para el apretón de manos (handshake)
+  connectionTimeoutMillis: 5000, 
+});
+
+// TEST DE CONEXIÓN
+pool.connect((err, client, release) => {
+  if (err) {
+    console.error('❌ ERROR REAL:', err.message);
+    // Si el error persiste, imprimimos si la variable llegó (sin mostrar la clave)
+    if (!process.env.DATABASE_PUBLIC_URL) {
+       console.log('⚠️ OJO: La variable DATABASE_PUBLIC_URL está vacía en el servidor');
+    }
+  } else {
+    console.log('✅ ¡POR FIN! CONECTADO AL PROXY PÚBLICO');
+    if (client) release();
   }
 });
 

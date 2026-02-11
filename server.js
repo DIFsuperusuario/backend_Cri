@@ -1,74 +1,393 @@
-require('dotenv').config(); 
+require('dotenv').config(); // 1. Configuración de entorno (Siempre primero)
 
-const express = require("express"); 
-const cors = require("cors");       
+const express = require("express"); // 2. Importar Express
+const cors = require("cors");       // 3. Importar Cors
 const { Pool } = require("pg");
 const bcrypt = require("bcrypt");
 const fs = require('fs');       
 const path = require('path');   
 const ExcelJS = require('exceljs');
 
+// 4. CREAR LA APP (¡Vital hacer esto antes de usarla!)
 const app = express(); 
 
-// 1. MIDDLEWARES
-app.use(cors());          
-app.use(express.json());  
+// 5. ACTIVAR MIDDLEWARES (Aquí van Cors y JSON)
+app.use(cors());          // <--- ¡Ahora sí! Deja pasar a todos (CORS)
+app.use(express.json());  // <--- Permite leer JSON en las peticiones
 
+// 6. PUERTO
 const PORT = process.env.PORT || 3000;
 
-// 2. CONFIGURACIÓN DE URL PARA REPORTES
-let BASE_URL = `http://localhost:${PORT}`;
-if (process.env.RAILWAY_PUBLIC_DOMAIN) {
-    BASE_URL = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
-}
 
-// 3. CARPETA DE REPORTES
+
+// ---------------------------
+// Configuración para servir archivos estáticos (Reportes)
+// ---------------------------
 const reportsDir = path.join(__dirname, 'reports');
 if (!fs.existsSync(reportsDir)) {
     fs.mkdirSync(reportsDir); 
 }
-app.use('/reports', express.static(reportsDir));
 
-// -----------------------------------------------------------
-// 4. CONEXIÓN MANUAL A POSTGRES (COMO TÚ LA TENÍAS)
-// -----------------------------------------------------------
+app.use('/reports', express.static(reportsDir));
+app.use(cors());
+app.use(express.json());
+
+// ---------------------------
+// Conexión a PostgreSQL (Modo Híbrido: Local y Nube)
+// ---------------------------
 const pool = new Pool({
   user: process.env.DB_USER,
   host: process.env.DB_HOST,
   database: process.env.DB_NAME,
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT,
-  // QUITAMOS EL SSL: En la red interna de Railway (5432) NO SE USA.
-  // Esto evitará el Timeout y el ECONNRESET de una vez.
-  connectionTimeoutMillis: 5000,
-});
-
-// TEST DE CONEXIÓN
-console.log(`🔌 Conectando manual a la red interna: ${process.env.DB_HOST}:${process.env.DB_PORT}...`);
-
-pool.connect((err, client, release) => {
-  if (err) {
-    console.error('❌ ERROR DE CONEXIÓN:', err.message);
-  } else {
-    console.log('✅ ✅ ✅ ¡CONEXIÓN EXITOSA! SISTEMA ONLINE ✅ ✅ ✅');
-    if (client) release();
+  // Esta línea es vital para conectarte desde tu casa a Railway
+  ssl: {
+    rejectUnauthorized: false
   }
 });
 
-console.log(`🌍 Servidor configurado en: ${BASE_URL}`);
+/////////////////////////////adrian//////////////////////////////////////////////////////////////////////////////
+// -----------------------------------------------------------------
+// FUNCIÓN CENTRAL: Consulta de Datos de Reporte (Antigua)
+// -----------------------------------------------------------------
+async function queryReportData(client, type, year, month, limitRows = false) {
+    let sql = `
+        SELECT 
+            p.id_paciente,
+            p.nombre AS nombre_paciente,
+            c.fecha,
+            TO_CHAR(c.hora_inicio, 'HH24:MI') AS hora_inicio,
+            TO_CHAR(c.hora_fin, 'HH24:MI') AS hora_fin,
+            pe.nombre AS nombre_tratante,
+            c.servicio_area,
+            c.estatus,
+            c.pago,
+            c.motivo_pago,
+            c.tipo_cita
+        FROM citas c
+        JOIN paciente p ON c.id_paciente = p.id_paciente
+        JOIN personal pe ON c.id_personal = pe.id_personal
+        WHERE 1=1 
+    `;
+    let params = [];
+    let filterIndex = 1;
+
+    // --- LÓGICA DE FILTRADO DE FECHAS (Genera YYYY-MM-DD) ---
+    if (type === 'mensual' && month) {
+        const fechaInicio = `${year}-${month}-01`;
+        const lastDay = new Date(year, parseInt(month), 0).getDate(); 
+        const fechaFin = `${year}-${month}-${lastDay}`;
+        
+        sql += ` AND c.fecha BETWEEN $${filterIndex++} AND $${filterIndex++}`;
+        params.push(fechaInicio, fechaFin);
+        
+    } else if (type === 'anual') {
+        const fechaInicio = `${year}-01-01`;
+        const fechaFin = `${year}-12-31`;
+        
+        sql += ` AND c.fecha BETWEEN $${filterIndex++} AND $${filterIndex++}`;
+        params.push(fechaInicio, fechaFin);
+    } else {
+        throw new Error("Filtros de fecha no válidos.");
+    }
+    
+    sql += ` ORDER BY c.fecha ASC, c.hora_inicio ASC`;
+    // Aplicar límite si es para vista previa
+    if (limitRows) {
+        sql += ` LIMIT 20`;
+    }
+
+    const result = await client.query(sql, params);
+    return result.rows;
+}
+
+// -----------------------------------------------------------------
+// NUEVA FUNCIÓN: Consulta de Datos de CONTEO (CON FILTROS DE FECHA)
+// -----------------------------------------------------------------
+async function queryServiceCountData(client, type, year, month) {
+    let params = [];
+    let filterIndex = 1;
+
+    // 1. LÓGICA DE FILTRADO DE FECHAS
+    let fechaFilterSql = "";
+    if (type === 'mensual' && month) {
+        const fechaInicio = `${year}-${month}-01`;
+        const lastDay = new Date(year, parseInt(month), 0).getDate(); 
+        const fechaFin = `${year}-${month}-${lastDay}`;
+        
+        fechaFilterSql = ` AND c.fecha BETWEEN $${filterIndex++} AND $${filterIndex++}`;
+        params.push(fechaInicio, fechaFin);
+        
+    } else if (type === 'anual') {
+        const fechaInicio = `${year}-01-01`;
+        const fechaFin = `${year}-12-31`;
+        
+        fechaFilterSql = ` AND c.fecha BETWEEN $${filterIndex++} AND $${filterIndex++}`;
+        params.push(fechaInicio, fechaFin);
+    } else {
+         // Si no se especifica tipo/año, devolvemos un error 400 en la ruta GET
+         throw new Error("Faltan parámetros de fecha para el conteo.");
+    }
+
+    // 2. CONSULTA SQL principal con el filtro de fecha inyectado
+    const sql = `
+        SELECT
+            c.servicio_area AS "Servicio Brindado",
+            COUNT(DISTINCT c.id_paciente) AS "Conteo No. Pacientes"
+        FROM
+            citas c
+        WHERE
+            c.servicio_area IN (
+                'Terapeuta Fisico',
+                'Terapeuta Autismo',
+                'Terapeuta Lenguaje',
+                'Psicologia', 
+                'Médico'
+            )
+            -- 4 = Puntual, 5 = Tardía (solo contar pacientes que asistieron)
+            AND c.asistencia IN (4, 5) 
+            ${fechaFilterSql} -- AQUI SE INYECTA EL FILTRO
+        GROUP BY
+            c.servicio_area
+        ORDER BY
+            "Servicio Brindado";
+    `;
+
+    const result = await client.query(sql, params);
+    return result.rows;
+}
+
+// --- Función helper para generar el reporte Excel (Antiguo) ---
+async function generateExcelReport(data, fileName, filterInfo) {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Reporte de Citas');
+
+    // ESTILO DE ENCABEZADO PARA TABLA COMPLEJA
+    const headerStyle = {
+        font: { bold: true, color: { argb: 'FFFFFFFF' } }, // Texto blanco
+        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F81BD' } }, // Azul oscuro
+        alignment: { vertical: 'middle', horizontal: 'center' }, // Centrado
+        border: { 
+            top: { style: 'thin' }, 
+            left: { style: 'thin' }, 
+            bottom: { style: 'thin' }, 
+            right: { style: 'thin' } 
+        }
+    };
+    // ESTILO DE CELDAS DE DATOS
+    const dataStyle = {
+        alignment: { vertical: 'middle', horizontal: 'center' }, // Centrado de texto
+        border: { 
+            top: { style: 'thin', color: { argb: 'FFD9D9D9' } }, // Borde gris claro
+            left: { style: 'thin', color: { argb: 'FFD9D9D9' } }, 
+            bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } }, 
+            right: { style: 'thin', color: { argb: 'FFD9D9D9' } } 
+        }
+    };
+    // Configuración de columnas (incluye estilo para centrar encabezados)
+    worksheet.columns = [
+        { header: 'ID Paciente', key: 'id_paciente', width: 15, style: headerStyle },
+        { header: 'Paciente', key: 'nombre_paciente', width: 30, style: headerStyle },
+        { header: 'Fecha Cita', key: 'fecha', width: 15, style: headerStyle },
+        { header: 'Inicio', key: 'hora_inicio', width: 10, style: headerStyle },
+        { header: 'Fin', key: 'hora_fin', width: 10, style: headerStyle },
+        { header: 'Tratante', key: 'nombre_tratante', width: 30, style: headerStyle },
+        { header: 'Servicio', key: 'servicio_area', width: 20, style: headerStyle },
+        { header: 'Estatus', key: 'estatus', width: 15, style: headerStyle },
+        { header: 'Tipo', key: 'tipo_cita', width: 8, style: headerStyle },
+        { header: 'Pago', key: 'pago', width: 10, style: { numFmt: '"\$"#,##0.00', ...headerStyle } },
+    ];
+
+    // Fila de Título del Reporte
+    worksheet.mergeCells('A1:J1');
+    worksheet.getCell('A1').value = `REPORTE DE CITAS: ${filterInfo} (${data.length} Registros)`;
+    worksheet.getCell('A1').font = { bold: true, size: 14 };
+    worksheet.getCell('A1').alignment = { vertical: 'middle', horizontal: 'center' };
+
+    worksheet.addRow([]); // Fila vacía
+    worksheet.addRow(worksheet.columns.map(col => col.header)); // Fila de encabezados reales (fila 3)
+    
+    // Aplicar estilo de encabezado a la fila 3
+    for (let i = 1; i <= worksheet.columns.length; i++) {
+        worksheet.getCell(3, i).style = headerStyle;
+    }
+
+    // Agregar datos y aplicar estilo
+    let rowIndex = 4;
+    data.forEach(row => {
+        const formattedRow = {
+            ...row,
+            fecha: row.fecha ? row.fecha.toISOString().split('T')[0] : '', // Formato YYYY-MM-DD
+        };
+        const newRow = worksheet.addRow(formattedRow);
+        
+        // Aplicar estilo de datos a toda la fila, centrado para todas las celdas
+        newRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+            // Estilo general para centrado y bordes
+            cell.style = { ...cell.style, ...dataStyle };
+            
+            // Excepción para el nombre del paciente y tratante (justificado a la izquierda si lo prefieres)
+            if (colNumber === 2 || colNumber === 6) { 
+                cell.alignment = { vertical: 'middle', horizontal: 'left' };
+            } 
+            
+            // Ajustar el formato de número de pago
+            if (colNumber === 10) {
+                cell.numFmt = '"\$"#,##0.00';
+            }
+        });
+        rowIndex++;
+    });
+    const filePath = path.join(reportsDir, `${fileName}.xlsx`);
+    await workbook.xlsx.writeFile(filePath);
+    return filePath;
+}
+
+// -----------------------------------------------------------------
+// NUEVA FUNCIÓN PARA GENERAR EL REPORTE DE CONTEO EN EXCEL (SIN COLOR NI ESTILO DE TABLA)
+// -----------------------------------------------------------------
+async function generateServiceCountExcel(data, fileName, filterInfo) {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Conteo de Servicios');
+    
+    // ESTILO DE ENCABEZADO SIMPLE (Solo negrita y centrado)
+    const headerStyle = {
+        font: { bold: true, color: { argb: 'FF000000' } }, // Texto Negro
+        alignment: { vertical: 'middle', horizontal: 'center' }, // Centrado
+        // Se omiten bordes y relleno
+    };
+    
+    // ESTILO BASE DE CELDAS DE DATOS SIMPLE (Solo centrado)
+    const dataStyleBase = {
+        alignment: { vertical: 'middle', horizontal: 'center' }, // Centrado de texto
+        font: { color: { argb: 'FF000000' } }, // Texto negro
+        // Se omiten bordes y relleno
+    };
+
+    // Definición de Columnas con el estilo de encabezado
+    worksheet.columns = [
+        { header: 'SERVICIO BRINDADO', key: 'Servicio Brindado', width: 35 },
+        { header: 'CONTEO NO. PACIENTES', key: 'Conteo No. Pacientes', width: 30 }, 
+    ];
+
+    // Fila de Título del Reporte (Fila 1)
+    worksheet.mergeCells('A1:B1');
+    const titleCell = worksheet.getCell('A1');
+    titleCell.value = `REPORTE DE CONTEO: ${filterInfo}`;
+    titleCell.font = { bold: true, size: 14, color: { argb: 'FF000000' } };
+    titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+    
+    worksheet.addRow([]); // Fila vacía (Fila 2)
+    
+    // Fila de encabezados reales (Fila 3)
+    const headerRow = worksheet.addRow(worksheet.columns.map(col => col.header)); 
+    
+    // Aplicar estilo de encabezado a la fila 3
+    headerRow.eachCell({ includeEmpty: false }, (cell) => {
+        // Aplicamos el estilo de texto y centrado
+        cell.font = headerStyle.font;
+        cell.alignment = headerStyle.alignment;
+    });
+
+    // Agregar datos y aplicar estilo de datos
+    data.forEach((row, index) => {
+        const newRow = worksheet.addRow(row);
+        
+        newRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+            // Aplicar estilo base (solo centrado)
+            cell.font = dataStyleBase.font;
+            cell.alignment = dataStyleBase.alignment;
+        });
+    });
+    
+    const filePath = path.join(reportsDir, `${fileName}.xlsx`);
+    await workbook.xlsx.writeFile(filePath);
+    return filePath;
+}
 
 // -----------------------------------------------------------
-// AQUÍ VAN TUS RUTAS (NO CAMBIES NADA DE ELLAS)
+// 📈 RUTA 1: Reporte de Conteo de Pacientes por Servicio (DATA FETCH)
+// (CORREGIDA PARA ACEPTAR FILTROS DE FECHA)
 // -----------------------------------------------------------
+app.get("/reporte-conteo-servicios", async (req, res) => {
+    const { type, year, month } = req.query;
 
-app.listen(PORT, () => {
-    console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
+    if (!type || !year) {
+        return res.status(400).json({ error: "Faltan parámetros 'type' o 'year'." });
+    }
+
+    const client = await pool.connect();
+    try {
+        const conteosBdRows = await queryServiceCountData(client, type, year, month);
+
+        const serviciosRequeridos = [
+            'Terapeuta Fisico',
+            'Terapeuta Autismo',
+            'Terapeuta Lenguaje',
+            'Psicologia',
+            'Médico'
+       ];
+        const conteosBd = conteosBdRows.reduce((map, row) => {
+            map[row["Servicio Brindado"]] = parseInt(row["Conteo No. Pacientes"]); 
+            return map;
+        }, {});
+        const respuestaFinal = serviciosRequeridos.map(servicio => ({
+            "Servicio Brindado": servicio,
+            "Conteo No. Pacientes": conteosBd[servicio] || 0
+        }));
+        res.status(200).json(respuestaFinal);
+
+    } catch (error) {
+        console.error("🔥 Error en /reporte-conteo-servicios:", error);
+        res.status(500).json({ error: "Error al generar el conteo de servicios", detalle: error.message });
+    } finally {
+        client.release();
+    }
 });
+
 // -----------------------------------------------------------
-// 📊 RUTA DE GENERACIÓN DE REPORTES (GENERATE) - Método POST (Antigua)
+// 📊 RUTA 2: GENERACIÓN DE ARCHIVO DE CONTEO (CORREGIDA PARA NOMBRE CORTO)
 // -----------------------------------------------------------
-app.post("/generate-report", async (req, res) => {
-    const { type, year, month, area } = req.body;
+app.post("/generate-service-count-report", async (req, res) => {
+    const { reportData, filterInfo } = req.body; 
+
+    if (!reportData || reportData.length === 0) {
+        return res.status(400).json({ error: "No se recibieron datos de conteo para generar el archivo." });
+    }
+
+    try {
+        const cleanFilterName = filterInfo
+                                    .toLowerCase()
+                                    .replace('/', '_')
+                                    .replace(/[^a-z0-9_]/g, ''); 
+                                    
+        const fileNameBase = `conteo_servicios_${cleanFilterName}`;
+        const serverBaseUrl = "http://localhost:3000"; 
+        
+        await generateServiceCountExcel(reportData, fileNameBase, filterInfo);
+        
+        const pdfFileName = `${fileNameBase}.pdf`;
+        fs.writeFileSync(path.join(reportsDir, pdfFileName), `Documento PDF simulado para el reporte de conteo.`);
+        const pdfUrl = `${serverBaseUrl}/reports/${pdfFileName}`;
+        const excelUrl = `${serverBaseUrl}/reports/${fileNameBase}.xlsx`;
+        console.log(`✅ Reporte de Conteo Excel generado.`);
+        res.status(200).json({
+            message: "Reporte de conteo generado con éxito.",
+            pdfUrl: pdfUrl,
+            excelUrl: excelUrl,
+        });
+    } catch (error) {
+        console.error("🔥 Error fatal en /generate-service-count-report:", error);
+        res.status(500).json({ error: "Error al generar el reporte de conteo", detalle: error.message });
+    }
+});
+
+// -----------------------------------------------------------
+// 👁️ RUTA: VISTA PREVIA DE DATOS (PREVIEW) - Método GET (Antigua)
+// -----------------------------------------------------------
+app.get("/preview-report-data", async (req, res) => {
+    const { type, year, month } = req.query;
     
     if (!type || !year) {
         return res.status(400).json({ error: "Faltan parámetros 'type' o 'year'." });
@@ -76,7 +395,36 @@ app.post("/generate-report", async (req, res) => {
 
     const client = await pool.connect();
     try {
-        const reportData = await queryReportData(client, type, year, month, area, false);
+        const previewData = await queryReportData(client, type, year, month, true);
+        
+        if (previewData.length === 0) {
+            return res.status(404).json({ 
+                error: "No se encontraron datos para la vista previa.", 
+            });
+        }
+        res.status(200).json(previewData);
+
+    } catch (error) {
+        console.error("🔥 Error en /preview-report-data:", error);
+        res.status(500).json({ error: "Error al obtener la vista previa", detalle: error.message });
+    } finally {
+        client.release();
+    }
+});
+
+// -----------------------------------------------------------
+// 📊 RUTA DE GENERACIÓN DE REPORTES (GENERATE) - Método POST (Antigua)
+// -----------------------------------------------------------
+app.post("/generate-report", async (req, res) => {
+    const { type, year, month } = req.body;
+    
+    if (!type || !year) {
+        return res.status(400).json({ error: "Faltan parámetros 'type' o 'year'." });
+    }
+
+    const client = await pool.connect();
+    try {
+        const reportData = await queryReportData(client, type, year, month, false);
         
         if (reportData.length === 0) {
             return res.status(404).json({ 
@@ -1299,7 +1647,19 @@ app.patch('/actualizar-asistencia', async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA: IMPREVISTOS DEFINITIVA (Faltas + Olvidos + Check de Recuperación) ---
+// --- RUTA: IMPREVISTOS (CORREGIDA: Filtra solo Activos) ---
+// -----------------------------------------------------------
+// -----------------------------------------------------------
+// --- RUTA: IMPREVISTOS (CORREGIDA: Filtra si ya tiene cita agendada) ---
+// -----------------------------------------------------------
+// -----------------------------------------------------------
+// --- RUTA: IMPREVISTOS (Con detector de Historial Previo) ---
+// -----------------------------------------------------------
+// -----------------------------------------------------------
+// --- RUTA: IMPREVISTOS (FINAL: Con Observaciones y Reagendados) ---
+// -----------------------------------------------------------
+// -----------------------------------------------------------
+// --- RUTA: IMPREVISTOS (CORREGIDA: Filtra por Nivel Actual) ---
 // -----------------------------------------------------------
 app.get("/pacientes-imprevistos", async (req, res) => {
   const client = await pool.connect();
@@ -1316,50 +1676,30 @@ app.get("/pacientes-imprevistos", async (req, res) => {
         c.num_programa,
         c.servicio_area,
         
-        -- Etiqueta para el Front: ¿Fue falta o fue error de dedo?
-        CASE 
-            WHEN c.asistencia = 0 THEN 'Sin Estatus (Olvido)'
-            ELSE 'Falta/Cancelación'
-        END as motivo_detalle,
-
+        -- Subconsultas (Historial y Observaciones)...
         (SELECT COUNT(*) > 0 FROM citas h WHERE h.id_paciente = p.id_paciente AND h.asistencia = 4) as tiene_historial,
         (SELECT hc.observaciones FROM historial_consultas hc WHERE hc.id_cita = c.id_cita LIMIT 1) as observaciones
 
       FROM citas c
       JOIN paciente p ON c.id_paciente = p.id_paciente
       JOIN personal per ON c.id_personal = per.id_personal
-      
       WHERE 
-        p.estatus_paciente = 'Activo'
-        
-        -- 1. SOLO PRIMERA VEZ / VALORACIÓN ÚNICA
-        AND (c.tipo_cita = 'V' OR c.tipo_cita = 'P') 
+        c.asistencia IN (1, 2, 3)       -- Faltas
+        AND p.estatus_paciente = 'Activo'
         AND c.indice_val = 1 
+        AND (c.tipo_cita = 'V' OR c.tipo_cita = 'P') 
         AND c.total_val = 1 
+        
+        -- 🔥 CORRECCIÓN CLAVE AQUÍ:
+        -- Solo mostrar la falta si coincide con el nivel actual del paciente.
+        -- Si el paciente ya subió a Nivel 2, la falta del Nivel 1 desaparece.
+        AND c.num_programa = p.num_programa_actual 
 
-        -- 2. AQUÍ ESTÁ TU REGLA DEL "OLVIDO" 👇
-        -- Atrapa si tiene falta explicita OR si es Fantasma (0 y fecha pasada)
-        AND (
-            c.asistencia IN (1, 2, 3)
-            OR 
-            (c.asistencia = 0 AND c.fecha < CURRENT_DATE) -- <--- ¡AQUÍ ESTÁ!
-        )
-
-        -- 3. EL PERDÓN (Solo si la historia continuó)
-        -- Si después de ese error/falta, el paciente ya tuvo otra cita (4)
-        -- o ya tiene una nueva agendada, entonces bórralo de la lista.
         AND NOT EXISTS (
-            SELECT 1 FROM citas posterior 
-            WHERE posterior.id_paciente = c.id_paciente 
-            AND posterior.fecha > c.fecha  -- Buscamos citas DESPUÉS del error
-            AND (
-                posterior.asistencia = 4 -- Ya vino
-                OR posterior.estatus IN ('Agendada', 'Pendiente', 'Confirmada') -- Ya reagendó
-                OR posterior.asistencia = 0 -- Ya tiene una pendiente
-            )
-            AND posterior.estatus NOT IN ('Cancelada', 'Baja')
+            SELECT 1 FROM citas c2 
+            WHERE c2.id_paciente = c.id_paciente 
+            AND c2.estatus = 'Agendada' 
         )
-
       ORDER BY c.fecha DESC;
     `;
     const result = await client.query(sql);
@@ -3299,98 +3639,6 @@ app.get("/personal-por-area", async (req, res) => {
     client.release();
   }
 });
-////////////////////////historial//////////
-// -----------------------------------------------------------
-// --- RUTA NUEVA: Historial de Asistencias (Por Fecha) ---
-// --- Recibe: ?fecha=YYYY-MM-DD & especialidad=...      ---
-// -----------------------------------------------------------
-app.get("/citas-historial", async (req, res) => {
-  const { fecha, especialidad } = req.query;
-
-  // Validaciones básicas
-  if (!fecha) return res.status(400).json({ error: "Falta la fecha (YYYY-MM-DD)" });
-  if (!especialidad) return res.status(400).json({ error: "Falta especialidad" });
-
-  const client = await pool.connect();
-  try {
-
-    // ---------------------------------------------------------
-    // CONSULTA 1: Profesionales que tuvieron citas en ESA FECHA
-    // ---------------------------------------------------------
-    const sqlProfesionalesHistorial = `
-      SELECT DISTINCT
-        pe.id_personal,
-        pe.nombre AS nombre_profesional,
-        pe.funcion AS especialidad
-      FROM personal pe
-      JOIN citas c ON pe.id_personal = c.id_personal
-      WHERE
-        c.fecha = $1::date  -- 👈 Usamos la fecha que llega del front
-        AND unaccent(TRIM(c.servicio_area)) ILIKE unaccent($2)
-    `;
-
-    // Ejecutamos Query 1
-    const resProfesionales = await client.query(sqlProfesionalesHistorial, [fecha, especialidad]);
-    const profesionales = resProfesionales.rows;
-
-    // Si nadie trabajó ese día, regresamos lista vacía
-    if (profesionales.length === 0) return res.json([]);
-
-    // ---------------------------------------------------------
-    // CONSULTA 2: Pacientes de esa fecha (TODOS: Asistieron y Faltaron)
-    // ---------------------------------------------------------
-    const idsProfesionales = profesionales.map(p => p.id_personal);
-
-    const sqlPacientesHistorial = `
-      SELECT
-        c.id_cita, c.id_personal, c.id_paciente, c.asistencia, c.pago, c.indice_val, c.total_val,
-        pa.nombre AS nombre_paciente,
-        pa.tipo_paciente, 
-        pa.motivo_estudio, pa.servicio, pa.fecha_nac, pa.domicilio,
-        pa.telefono, pa.tel_domicilio, pa.edad, pa.sexo, pa.ocupacion,
-        edo_civil, pa.escolaridad, pa.entidad_fed, pa.cp, pa.num_consultorio,
-        
-        c.servicio_area,
-        TO_CHAR(c.hora_inicio, 'HH24:MI') AS hora_inicio,
-        TO_CHAR(c.hora_fin, 'HH24:MI') AS hora_fin,
-        c.tipo_cita
-      FROM citas c
-      JOIN paciente pa ON c.id_paciente = pa.id_paciente
-      WHERE
-        c.id_personal = ANY($1::int[])     -- Array de IDs de los doctores encontrados
-        AND c.fecha = $2::date             -- La fecha específica
-        AND unaccent(TRIM(c.servicio_area)) ILIKE unaccent($3)
-      ORDER BY c.hora_inicio;
-    `;
-    
-    // Ejecutamos Query 2
-    const resPacientes = await client.query(sqlPacientesHistorial, [idsProfesionales, fecha, especialidad]);
-    
-    // --- FUSIÓN DE DATOS (Misma estructura que el original para reutilizar modelos en Flutter) ---
-    const pacientes = resPacientes.rows;
-    
-    const resultadoFinal = profesionales.map(prof => {
-      const pacientesAsignados = pacientes.filter(pac => pac.id_personal === prof.id_personal);
-      return {
-        ...prof,
-        conteo_pacientes: pacientesAsignados.length,
-        pacientes: pacientesAsignados
-      };
-    });
-    
-    res.json(resultadoFinal);
-
-  } catch (error) {
-    console.error("Error en citas-historial:", error);
-    res.status(500).json({ error: "Error al obtener historial" });
-  } finally {
-    client.release();
-  }
-});
-////////////////////////////////////////
-
-
-
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
 // ---------------------------

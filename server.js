@@ -10,13 +10,13 @@ const ExcelJS = require('exceljs');
 
 const app = express(); 
 
-// 1. MIDDLEWARES (Solo una vez)
+// 1. MIDDLEWARES
 app.use(cors());          
 app.use(express.json());  
 
 const PORT = process.env.PORT || 3000;
 
-// 2. CONFIGURACIÓN DE URL PARA REPORTES (Para que no muera el link de descarga)
+// 2. CONFIGURACIÓN DE URL DINÁMICA
 let BASE_URL = `http://localhost:${PORT}`;
 if (process.env.RAILWAY_PUBLIC_DOMAIN) {
     BASE_URL = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
@@ -30,26 +30,33 @@ if (!fs.existsSync(reportsDir)) {
 app.use('/reports', express.static(reportsDir));
 
 // -----------------------------------------------------------
-// 4. CONEXIÓN MAESTRA A POSTGRES (Aquí está el truco)
+// 4. CONEXIÓN MAESTRA A POSTGRES
 // -----------------------------------------------------------
 const pool = new Pool({
-  // Al usar connectionString, Node lee el enlace dinámico que hiciste en Railway
+  // Si existe DATABASE_URL (en Railway), se usa directo. 
+  // Si no (en Local), usa las variables sueltas.
   connectionString: process.env.DATABASE_URL, 
-  
-  // Fallback: Por si en tu laptop aún usas las variables sueltas
   user: process.env.DB_USER,
   host: process.env.DB_HOST,
   database: process.env.DB_NAME,
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT,
-
   ssl: {
     rejectUnauthorized: false
   }
 });
 
-// Mensaje para confirmar en consola que la URL se armó bien
 console.log(`🌍 Servidor configurado en: ${BASE_URL}`);
+
+// Test de conexión para logs
+pool.connect((err, client, release) => {
+  if (err) {
+    console.error('❌ Error de conexión:', err.message);
+  } else {
+    console.log('✅ Base de Datos Conectada');
+    release();
+  }
+});
 
 /////////////////////////////adrian//////////////////////////////////////////////////////////////////////////////
 // -----------------------------------------------------------------

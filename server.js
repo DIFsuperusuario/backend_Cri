@@ -30,10 +30,7 @@ if (!fs.existsSync(reportsDir)) {
 app.use('/reports', express.static(reportsDir));
 
 // -----------------------------------------------------------
-// 4. CONEXIÓN MAESTRA A POSTGRES (Blindada para el Proxy)
-// -----------------------------------------------------------
-// -----------------------------------------------------------
-// CONEXIÓN MANUAL INTERNA (SIN SSL - MODO VELOZ)
+// 4. CONEXIÓN MAESTRA (AJUSTADA PARA EL PROXY PÚBLICO)
 // -----------------------------------------------------------
 const pool = new Pool({
   user: process.env.DB_USER,
@@ -42,34 +39,35 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT,
   
-  // QUITAMOS EL SSL porque en la red interna de Railway no se usa
-  // Eso es lo que estaba causando el Timeout
-  connectionTimeoutMillis: 5000 
+  // EL SSL ES OBLIGATORIO PARA EL PUERTO 11634
+  ssl: {
+    rejectUnauthorized: false
+  },
+  
+  // Parámetros para evitar el ECONNRESET y el Timeout
+  keepalive: true,
+  connectionTimeoutMillis: 10000, // 10 segundos para conectar
+  idleTimeoutMillis: 30000,       // Mantener la conexión abierta
 });
 
-// TEST DE CONEXIÓN
-console.log(`🔌 Conectando a la red interna: ${process.env.DB_HOST}:${process.env.DB_PORT}...`);
+// TEST DE CONEXIÓN ÚNICO
+console.log(`🔌 Intentando conectar a ${process.env.DB_HOST}:${process.env.DB_PORT}...`);
 
 pool.connect((err, client, release) => {
   if (err) {
-    console.error('❌ ERROR CRÍTICO:', err.message);
+    console.error('❌ ERROR DE CONEXIÓN:', err.message);
   } else {
-    console.log('✅ ✅ ✅ ¡CONEXIÓN EXITOSA! APP VIVA ✅ ✅ ✅');
-    if (client) release();
-  }
-});
-
-// TEST DE CONEXIÓN (Revisa esto en tus logs de Railway)
-pool.connect((err, client, release) => {
-  if (err) {
-    console.error('❌ Error de conexión a la BD:', err.message);
-  } else {
-    console.log('✅ BASE DE DATOS CONECTADA (MODO PÚBLICO)');
+    console.log('✅ ✅ ✅ ¡BASE DE DATOS CONECTADA EXITOSAMENTE! ✅ ✅ ✅');
     if (client) release();
   }
 });
 
 console.log(`🌍 Servidor configurado en: ${BASE_URL}`);
+console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
+
+// -----------------------------------------------------------
+// AQUÍ SIGUEN TUS RUTAS (app.get, app.post, etc.)
+// -----------------------------------------------------------
 /////////////////////////////adrian//////////////////////////////////////////////////////////////////////////////
 // -----------------------------------------------------------------
 // FUNCIÓN CENTRAL: Consulta de Datos de Reporte (CON FILTRO DE ÁREA)

@@ -33,29 +33,28 @@ app.use('/reports', express.static(reportsDir));
 // 4. CONEXIÓN MAESTRA A POSTGRES (Blindada para el Proxy)
 // -----------------------------------------------------------
 // -----------------------------------------------------------
-// CONEXIÓN MANUAL FORZADA (Arregla el ECONNRESET)
+// CONEXIÓN MANUAL INTERNA (SIN SSL - MODO VELOZ)
 // -----------------------------------------------------------
-const connectionString = `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`;
-
 const pool = new Pool({
-  connectionString: connectionString,
-  ssl: {
-    rejectUnauthorized: false
-  },
-  // Parámetros para que el proxy no nos bote
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  user: process.env.DB_USER,
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  password: process.env.DB_PASSWORD,
+  port: process.env.DB_PORT,
+  
+  // QUITAMOS EL SSL porque en la red interna de Railway no se usa
+  // Eso es lo que estaba causando el Timeout
+  connectionTimeoutMillis: 5000 
 });
 
 // TEST DE CONEXIÓN
-console.log('🔌 Intentando conexión manual al puerto 11634...');
+console.log(`🔌 Conectando a la red interna: ${process.env.DB_HOST}:${process.env.DB_PORT}...`);
 
 pool.connect((err, client, release) => {
   if (err) {
     console.error('❌ ERROR CRÍTICO:', err.message);
   } else {
-    console.log('✅ ✅ ✅ CONEXIÓN EXITOSA - APP VIVA ✅ ✅ ✅');
+    console.log('✅ ✅ ✅ ¡CONEXIÓN EXITOSA! APP VIVA ✅ ✅ ✅');
     if (client) release();
   }
 });

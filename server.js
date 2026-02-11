@@ -17,7 +17,18 @@ app.use(express.json());  // <--- Permite leer JSON en las peticiones
 
 // 6. PUERTO
 const PORT = process.env.PORT || 3000;
-const excelUrl = `${BASE_URL}/reports/${fileNameBase}.xlsx`;
+// ❌ BORRA LA LÍNEA QUE DECÍA: const excelUrl = ... ❌
+
+// ✅ AGREGA ESTO EN SU LUGAR:
+// Definimos la URL base del servidor (Local o Railway)
+let BASE_URL = `http://localhost:${PORT}`;
+
+// Si Railway nos da un dominio público, lo usamos
+if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+    BASE_URL = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+}
+
+console.log(`🌍 URL Base configurada: ${BASE_URL}`);
 
 
 // ---------------------------

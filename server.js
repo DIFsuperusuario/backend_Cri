@@ -19,6 +19,7 @@ app.use(express.json());  // <--- Permite leer JSON en las peticiones
 const PORT = process.env.PORT || 3000;
 
 
+
 // ---------------------------
 // Configuración para servir archivos estáticos (Reportes)
 // ---------------------------
@@ -351,7 +352,7 @@ app.get("/reporte-conteo-servicios", async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// 📊 RUTA 2: GENERACIÓN DE ARCHIVO DE CONTEO (CORREGIDA)
+// 📊 RUTA 2: GENERACIÓN DE ARCHIVO DE CONTEO (CORREGIDA PARA NOMBRE CORTO)
 // -----------------------------------------------------------
 app.post("/generate-service-count-report", async (req, res) => {
     const { reportData, filterInfo } = req.body; 
@@ -367,29 +368,15 @@ app.post("/generate-service-count-report", async (req, res) => {
                                     .replace(/[^a-z0-9_]/g, ''); 
                                     
         const fileNameBase = `conteo_servicios_${cleanFilterName}`;
+        const serverBaseUrl = "http://localhost:3000"; 
         
-        // 🔥 CORRECCIÓN AQUÍ: Detección automática de URL 🔥
-        // Por defecto localhost (para pruebas en tu casa)
-        let serverBaseUrl = `http://localhost:${process.env.PORT || 3000}`;
-
-        // Si estamos en Railway (Nube), usamos el dominio real
-        if (process.env.RAILWAY_PUBLIC_DOMAIN) {
-            serverBaseUrl = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
-        } else if (process.env.PUBLIC_URL) {
-            serverBaseUrl = process.env.PUBLIC_URL;
-        }
-
         await generateServiceCountExcel(reportData, fileNameBase, filterInfo);
         
         const pdfFileName = `${fileNameBase}.pdf`;
         fs.writeFileSync(path.join(reportsDir, pdfFileName), `Documento PDF simulado para el reporte de conteo.`);
-        
-        // Ahora sí, los links llevarán https://...
         const pdfUrl = `${serverBaseUrl}/reports/${pdfFileName}`;
         const excelUrl = `${serverBaseUrl}/reports/${fileNameBase}.xlsx`;
-        
-        console.log(`✅ Reporte de Conteo generado: ${excelUrl}`);
-        
+        console.log(`✅ Reporte de Conteo Excel generado.`);
         res.status(200).json({
             message: "Reporte de conteo generado con éxito.",
             pdfUrl: pdfUrl,
@@ -431,7 +418,7 @@ app.get("/preview-report-data", async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// 📊 RUTA DE GENERACIÓN DE REPORTES (CORREGIDA PARA RAILWAY)
+// 📊 RUTA DE GENERACIÓN DE REPORTES (GENERATE) - Método POST (Antigua)
 // -----------------------------------------------------------
 app.post("/generate-report", async (req, res) => {
     const { type, year, month, area } = req.body;
@@ -458,39 +445,27 @@ app.post("/generate-report", async (req, res) => {
         
         let fileNameBase;
         let filterInfo;
-        
-        // Lógica de nombres de archivo
         if (type === 'mensual' && month) {
             const monthIndex = parseInt(month, 10) - 1;
             const monthName = monthNames[monthIndex];
             fileNameBase = `reporte_citas_${monthName}_${year}`; 
-            // Agregamos el área al nombre del filtro para que se vea en el Excel
-            filterInfo = `${monthName.toUpperCase()}/${year} - ${area || 'TODOS'}`;
+            filterInfo = `${monthName.toUpperCase()}/${year}`;
         } else if (type === 'anual') {
             fileNameBase = `reporte_citas_anual_${year}`; 
-            filterInfo = `${year} - ${area || 'TODOS'}`;
+            filterInfo = `${year}`;
         } else {
             fileNameBase = `reporte_citas_general`; 
             filterInfo = 'General';
         }
 
-        // Generamos el Excel físico en la carpeta del servidor
+        const serverBaseUrl = "http://localhost:3000";
         await generateExcelReport(reportData, fileNameBase, filterInfo);
-        
-        // Generamos el PDF simulado (opcional)
         const pdfFileName = `${fileNameBase}.pdf`;
         fs.writeFileSync(path.join(reportsDir, pdfFileName), `Documento PDF simulado. Por favor, descargue el Excel.`);
         
-        // 🔥 AQUÍ ESTÁ EL CAMBIO IMPORTANTE 🔥
-        // 1. Buscamos si Railway nos dio una URL pública en las variables de entorno.
-        // 2. Si no, usamos localhost (solo para cuando desarrollas en tu PC).
-        const serverBaseUrl = process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`;
-
-        // Armamos los links usando esa URL dinámica
         const pdfUrl = `${serverBaseUrl}/reports/${pdfFileName}`;
         const excelUrl = `${serverBaseUrl}/reports/${fileNameBase}.xlsx`;
-        
-        console.log(`✅ Reporte generado. Link público: ${excelUrl}`);
+        console.log(`✅ Reporte Excel generado y PDF simulado. Registros: ${reportData.length}`);
         
         res.status(200).json({
             message: "Reporte generado con éxito.",

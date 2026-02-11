@@ -33,32 +33,31 @@ app.use('/reports', express.static(reportsDir));
 // 4. CONEXIÓN MAESTRA A POSTGRES (Blindada para el Proxy)
 // -----------------------------------------------------------
 // -----------------------------------------------------------
-// 4. CONEXIÓN MAESTRA (VERSIÓN ANTIFALLOS)
+// 4. CONEXIÓN MAESTRA (ELIMINA EL ECONNRESET)
 // -----------------------------------------------------------
 const pool = new Pool({
-  // Usamos la variable que vinculamos (DATABASE_PUBLIC_URL)
+  // Usamos la variable que vinculaste (DATABASE_PUBLIC_URL)
   connectionString: process.env.DATABASE_PUBLIC_URL, 
   
+  // Esta configuración de SSL es la que acepta el Proxy de Railway sí o sí
   ssl: {
     rejectUnauthorized: false
   },
 
-  // --- PARÁMETROS CRÍTICOS PARA EL PROXY ---
-  connectionTimeoutMillis: 20000, // Le damos 20 seg para conectar (antes de que muera)
-  idleTimeoutMillis: 30000,       // Tiempo antes de cerrar una conexión inactiva
-  max: 10,                        // Máximo de conexiones simultáneas
-  allowExitOnIdle: true           // Permite que el proceso termine si no hay uso
+  // --- PARÁMETROS ANTIFALLOS ---
+  max: 10,                        // No satures la BD
+  idleTimeoutMillis: 30000,       // Mantén la conexión "caliente"
+  connectionTimeoutMillis: 10000, // Dale 10 seg para el saludo inicial
 });
 
-// TEST DE CONEXIÓN CON REINTENTO
-console.log('⏳ Intentando conectar al Proxy de Railway...');
+// TEST DE CONEXIÓN (MIRA EL LOG DESPUÉS DE SUBIR)
+console.log('⏳ Iniciando apretón de manos con el Proxy...');
 
 pool.connect((err, client, release) => {
   if (err) {
-    console.error('❌ ERROR REAL DE CONEXIÓN:', err.message);
-    console.log('👉 Tip: Verifica que en Railway la variable DATABASE_PUBLIC_URL sea la que tiene el puerto 11634');
+    console.error('❌ ERROR DE CONEXIÓN:', err.message);
   } else {
-    console.log('✅ ✅ ✅ ¡CONECTADO EXITOSAMENTE AL PROXY PÚBLICO! ✅ ✅ ✅');
+    console.log('✅ ✅ ✅ CONEXIÓN EXITOSA AL PROXY PÚBLICO ✅ ✅ ✅');
     if (client) release();
   }
 });

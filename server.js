@@ -49,9 +49,8 @@ const pool = new Pool({
 
 /////////////////////////////adrian//////////////////////////////////////////////////////////////////////////////
 // -----------------------------------------------------------------
-// FUNCIÓN CENTRAL: Consulta de Datos de Reporte (ACTUALIZADA CON ÁREA)
-// -----------------------------------------------------------------
-// Nota: Agregamos el parámetro 'area' antes de 'limitRows'
+// En server.js, busca la función queryReportData y agrega la línea marcada:
+
 async function queryReportData(client, type, year, month, area, limitRows = false) {
     let sql = `
         SELECT 
@@ -63,6 +62,7 @@ async function queryReportData(client, type, year, month, area, limitRows = fals
             pe.nombre AS nombre_tratante,
             c.servicio_area,
             c.estatus,
+            c.asistencia,  -- <--- ¡AGREGA ESTA LÍNEA! (Sin esto, Dart no sabe el color)
             c.pago,
             c.motivo_pago,
             c.tipo_cita
@@ -71,6 +71,7 @@ async function queryReportData(client, type, year, month, area, limitRows = fals
         JOIN personal pe ON c.id_personal = pe.id_personal
         WHERE 1=1 
     `;
+    // ... resto del código ...
     let params = [];
     let filterIndex = 1;
 

@@ -2443,6 +2443,138 @@ app.get("/pacientes-bajas-altas", async (req, res) => {
 
 
 // -----------------------------------------------------------
+// --- RUTA: DESCARGAR EXCEL BAJAS/ALTAS (POR TRATANTE) ---
+// -----------------------------------------------------------
+app.get("/reporte-bajas-altas-excel", async (req, res) => {
+  const { tipo } = req.query; // 'BAJA' o 'ALTA'
+  const client = await pool.connect();
+
+  try {
+    let filtroEstatus = "";
+    let tituloReporte = "";
+    let colorTab = "";
+
+    if (tipo === 'BAJA') {
+      filtroEstatus = "p.estatus_paciente = 'Baja'";
+      tituloReporte = "REPORTE DE BAJAS - POR TRATANTE";
+      colorTab = "FF0000"; // Rojo
+    } else {
+      filtroEstatus = "p.estatus_paciente IN ('Alta', 'Finalizado')";
+      tituloReporte = "REPORTE DE ALTAS - POR TRATANTE";
+      colorTab = "008000"; // Verde
+    }
+
+    // SQL MEJORADO: Ordenamos primero por Tratante para agrupar visualmente
+    const sql = `
+      SELECT 
+        p.*,
+        f.nombre as nombre_tutor,
+        f.telefono as telefono_tutor,
+        -- Datos de la ÚLTIMA CITA para definir al tratante principal
+        per.nombre as nombre_tratante,
+        c.fecha as fecha_cita,
+        c.asistencia
+      FROM paciente p
+      LEFT JOIN familiar f ON p.id_paciente = f.id_paciente
+      -- Join estratégico para sacar el último tratante
+      LEFT JOIN (
+          SELECT DISTINCT ON (id_paciente) id_paciente, id_personal, fecha, asistencia 
+          FROM citas ORDER BY id_paciente, fecha DESC
+      ) c ON p.id_paciente = c.id_paciente
+      LEFT JOIN personal per ON c.id_personal = per.id_personal
+      
+      WHERE ${filtroEstatus}
+      
+      ORDER BY per.nombre ASC, p.nombre ASC
+    `;
+
+    const result = await client.query(sql);
+
+    // --- CREACIÓN DEL EXCEL ---
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Pacientes', {
+      properties: { tabColor: { argb: colorTab } }
+    });
+
+    // 1. Definir Columnas
+    worksheet.columns = [
+      { header: 'TRATANTE RESPONSABLE', key: 'tratante', width: 25 },
+      { header: 'PACIENTE', key: 'paciente', width: 30 },
+      { header: 'EDAD', key: 'edad', width: 8 },
+      { header: 'SERVICIO', key: 'servicio', width: 15 },
+      { header: 'TUTOR', key: 'tutor', width: 25 },
+      { header: 'TELÉFONO', key: 'telefono', width: 15 },
+      { header: 'REF. MÉDICA', key: 'ref', width: 20 },
+      { header: 'MOTIVO ESTUDIO', key: 'motivo', width: 25 },
+      { header: 'ÚLTIMA VISITA', key: 'fecha', width: 15 },
+    ];
+
+    // 2. Estilizar Cabecera
+    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFF' }, size: 12 };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: tipo === 'BAJA' ? 'B71C1C' : '2E7D32' } // Rojo o Verde oscuro
+    };
+    worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+    // 3. Llenar filas
+    let currentTratante = "";
+    
+    result.rows.forEach((row) => {
+      // Limpieza de datos nulos
+      const tratante = row.nombre_tratante || "SIN ASIGNAR";
+      const fecha = row.fecha_cita ? new Date(row.fecha_cita).toLocaleDateString('es-MX') : "S/F";
+
+      // Insertamos fila
+      const newRow = worksheet.addRow({
+        tratante: tratante,
+        paciente: row.nombre,
+        edad: row.edad || '-',
+        servicio: row.servicio,
+        tutor: row.nombre_tutor || '-',
+        telefono: row.telefono || row.telefono_tutor || '-',
+        ref: row.ref_medica || '-',
+        motivo: row.motivo_estudio || '-',
+        fecha: fecha
+      });
+
+      // 4. Formato condicional visual (Agrupar visualmente por tratante)
+      // Si cambia el tratante, ponemos un borde superior grueso para separar
+      if (tratante !== currentTratante) {
+        newRow.getCell('tratante').font = { bold: true };
+        currentTratante = tratante;
+      } else {
+        // Si es el mismo tratante, ponemos el nombre en gris clarito para que no sature
+        newRow.getCell('tratante').font = { color: { argb: 'AAAAAA' } };
+      }
+      
+      // Bordes finos para toda la fila
+      newRow.eachCell((cell) => {
+        cell.border = {
+          bottom: { style: 'thin', color: { argb: 'DDDDDD' } }
+        };
+        cell.alignment = { vertical: 'middle', wrapText: true }; // Ajuste de texto
+      });
+    });
+
+    // 5. Enviar archivo
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=Reporte_${tipo}_${Date.now()}.xlsx`);
+
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (error) {
+    console.error("🔥 Error Excel:", error);
+    res.status(500).send("Error generando Excel");
+  } finally {
+    client.release();
+  }
+});
+
+
+// -----------------------------------------------------------
 // --- RUTA: FINALIZAR VALORACIÓN ANTICIPADAMENTE (Corte de Caja) ---
 // -----------------------------------------------------------
 app.post('/finalizar-valoracion-anticipada', async (req, res) => {

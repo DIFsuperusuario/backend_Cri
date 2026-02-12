@@ -2443,7 +2443,7 @@ app.get("/pacientes-bajas-altas", async (req, res) => {
 
 
 // -----------------------------------------------------------
-// --- RUTA: DESCARGAR EXCEL BAJAS/ALTAS (POR TRATANTE) ---
+// --- RUTA: DESCARGAR EXCEL BAJAS/ALTAS (CORREGIDO) ---
 // -----------------------------------------------------------
 app.get("/reporte-bajas-altas-excel", async (req, res) => {
   const { tipo } = req.query; // 'BAJA' o 'ALTA'
@@ -2451,25 +2451,23 @@ app.get("/reporte-bajas-altas-excel", async (req, res) => {
 
   try {
     let filtroEstatus = "";
-    let tituloReporte = "";
     let colorTab = "";
 
     if (tipo === 'BAJA') {
       filtroEstatus = "p.estatus_paciente = 'Baja'";
-      tituloReporte = "REPORTE DE BAJAS - POR TRATANTE";
       colorTab = "FF0000"; // Rojo
     } else {
       filtroEstatus = "p.estatus_paciente IN ('Alta', 'Finalizado')";
-      tituloReporte = "REPORTE DE ALTAS - POR TRATANTE";
       colorTab = "008000"; // Verde
     }
 
-    // SQL MEJORADO: Ordenamos primero por Tratante para agrupar visualmente
+    // SQL CORREGIDO (Sin f.telefono)
     const sql = `
       SELECT 
         p.*,
         f.nombre as nombre_tutor,
-        f.telefono as telefono_tutor,
+        -- Quitamos f.telefono porque no existe en tu BD
+        
         -- Datos de la ÚLTIMA CITA para definir al tratante principal
         per.nombre as nombre_tratante,
         c.fecha as fecha_cita,
@@ -2514,7 +2512,7 @@ app.get("/reporte-bajas-altas-excel", async (req, res) => {
     worksheet.getRow(1).fill = {
       type: 'pattern',
       pattern: 'solid',
-      fgColor: { argb: tipo === 'BAJA' ? 'B71C1C' : '2E7D32' } // Rojo o Verde oscuro
+      fgColor: { argb: tipo === 'BAJA' ? 'B71C1C' : '2E7D32' } 
     };
     worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
 
@@ -2522,9 +2520,14 @@ app.get("/reporte-bajas-altas-excel", async (req, res) => {
     let currentTratante = "";
     
     result.rows.forEach((row) => {
-      // Limpieza de datos nulos
       const tratante = row.nombre_tratante || "SIN ASIGNAR";
-      const fecha = row.fecha_cita ? new Date(row.fecha_cita).toLocaleDateString('es-MX') : "S/F";
+      
+      // Formateo de fecha seguro
+      let fecha = "S/F";
+      if (row.fecha_cita) {
+          const d = new Date(row.fecha_cita);
+          fecha = d.toLocaleDateString('es-MX');
+      }
 
       // Insertamos fila
       const newRow = worksheet.addRow({
@@ -2533,28 +2536,23 @@ app.get("/reporte-bajas-altas-excel", async (req, res) => {
         edad: row.edad || '-',
         servicio: row.servicio,
         tutor: row.nombre_tutor || '-',
-        telefono: row.telefono || row.telefono_tutor || '-',
+        telefono: row.telefono || '-', // Solo usamos el del paciente
         ref: row.ref_medica || '-',
         motivo: row.motivo_estudio || '-',
         fecha: fecha
       });
 
-      // 4. Formato condicional visual (Agrupar visualmente por tratante)
-      // Si cambia el tratante, ponemos un borde superior grueso para separar
+      // 4. Formato visual
       if (tratante !== currentTratante) {
         newRow.getCell('tratante').font = { bold: true };
         currentTratante = tratante;
       } else {
-        // Si es el mismo tratante, ponemos el nombre en gris clarito para que no sature
         newRow.getCell('tratante').font = { color: { argb: 'AAAAAA' } };
       }
       
-      // Bordes finos para toda la fila
       newRow.eachCell((cell) => {
-        cell.border = {
-          bottom: { style: 'thin', color: { argb: 'DDDDDD' } }
-        };
-        cell.alignment = { vertical: 'middle', wrapText: true }; // Ajuste de texto
+        cell.border = { bottom: { style: 'thin', color: { argb: 'DDDDDD' } } };
+        cell.alignment = { vertical: 'middle', wrapText: true };
       });
     });
 
@@ -2571,7 +2569,7 @@ app.get("/reporte-bajas-altas-excel", async (req, res) => {
   } finally {
     client.release();
   }
-});
+});s
 
 
 // -----------------------------------------------------------

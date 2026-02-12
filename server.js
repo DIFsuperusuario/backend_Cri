@@ -2349,7 +2349,7 @@ app.post('/crear-programa-asignado', async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA CORREGIDA: PACIENTES BAJA/ALTA (Sin f.telefono) ---
+// --- RUTA CORREGIDA: PACIENTES BAJA/ALTA (+ REF MEDICA) ---
 // -----------------------------------------------------------
 app.get("/pacientes-bajas-altas", async (req, res) => {
   const { tipo } = req.query; 
@@ -2366,10 +2366,7 @@ app.get("/pacientes-bajas-altas", async (req, res) => {
     const sql = `
       SELECT 
         p.*,
-        -- Datos del tutor (Solo pedimos el nombre, ya que telefono dio error)
         f.nombre as nombre_tutor,
-        
-        -- Datos de la CITA
         c.id_cita, 
         c.fecha, 
         c.hora_inicio, 
@@ -2378,23 +2375,18 @@ app.get("/pacientes-bajas-altas", async (req, res) => {
         c.tipo_cita,
         c.num_programa,
         c.pago,
-        
         per.nombre as nombre_tratante,
         hc.observaciones
-        
       FROM paciente p
       LEFT JOIN familiar f ON p.id_paciente = f.id_paciente
       LEFT JOIN citas c ON p.id_paciente = c.id_paciente
       LEFT JOIN personal per ON c.id_personal = per.id_personal
       LEFT JOIN historial_consultas hc ON c.id_cita = hc.id_cita
-      
       WHERE ${filtroEstatus}
-      
       ORDER BY p.nombre ASC, c.fecha DESC
     `;
 
     const result = await client.query(sql);
-
     const pacientesMap = {};
 
     result.rows.forEach(row => {
@@ -2403,11 +2395,15 @@ app.get("/pacientes-bajas-altas", async (req, res) => {
           id_paciente: row.id_paciente,
           nombre: row.nombre,
           servicio: row.servicio,
-          telefono: row.telefono, // Usamos el teléfono del paciente
+          telefono: row.telefono,
           estatus_paciente: row.estatus_paciente,
           edad: row.edad || 'N/D',
           direccion: row.direccion || '',
           nombre_tutor: row.nombre_tutor || 'No registrado',
+          
+          // 🔥 AQUÍ ESTÁ LO NUEVO: AGREGAMOS LA REFERENCIA
+          ref_medica: row.ref_medica || 'Ninguna', 
+
           historial: [] 
         };
       }

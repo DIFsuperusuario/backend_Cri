@@ -2349,14 +2349,13 @@ app.post('/crear-programa-asignado', async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA: PACIENTES BAJA/ALTA (NUEVA) ---
+// --- RUTA: PACIENTES BAJA/ALTA (+ HISTORIAL DETALLADO) ---
 // -----------------------------------------------------------
 app.get("/pacientes-bajas-altas", async (req, res) => {
   const { tipo } = req.query; // 'BAJA' o 'ALTA'
   const client = await pool.connect();
 
   try {
-    // 1. Filtro base según lo que pida el admin
     let filtroEstatus = "";
     if (tipo === 'BAJA') {
       filtroEstatus = "p.estatus_paciente = 'Baja'";
@@ -2367,11 +2366,25 @@ app.get("/pacientes-bajas-altas", async (req, res) => {
     const sql = `
       SELECT 
         p.*,
-        -- Datos de citas para el historial
-        c.id_cita, c.fecha, c.hora_inicio, c.asistencia, c.servicio_area,
+        -- Datos del tutor
+        f.nombre as nombre_tutor,
+        f.telefono as telefono_tutor,
+        
+        -- Datos de la CITA (Todas las columnas importantes)
+        c.id_cita, 
+        c.fecha, 
+        c.hora_inicio, 
+        c.asistencia, 
+        c.servicio_area,
+        c.tipo_cita,      -- 'P' (Primera vez), 'A' (Tratamiento/Asignado)
+        c.num_programa,   -- Nivel o Bloque (1, 2, 3...)
+        c.pago,           -- Dinero registrado
+        
         per.nombre as nombre_tratante,
         hc.observaciones
+        
       FROM paciente p
+      LEFT JOIN familiar f ON p.id_paciente = f.id_paciente
       LEFT JOIN citas c ON p.id_paciente = c.id_paciente
       LEFT JOIN personal per ON c.id_personal = per.id_personal
       LEFT JOIN historial_consultas hc ON c.id_cita = hc.id_cita
@@ -2383,10 +2396,10 @@ app.get("/pacientes-bajas-altas", async (req, res) => {
 
     const result = await client.query(sql);
 
-    // 2. Agrupamos los datos (El mismo truco del Map)
     const pacientesMap = {};
 
     result.rows.forEach(row => {
+      // 1. Crear paciente si no existe
       if (!pacientesMap[row.id_paciente]) {
         pacientesMap[row.id_paciente] = {
           id_paciente: row.id_paciente,
@@ -2394,28 +2407,38 @@ app.get("/pacientes-bajas-altas", async (req, res) => {
           servicio: row.servicio,
           telefono: row.telefono,
           estatus_paciente: row.estatus_paciente,
-          historial: [] // Iniciamos lista vacía
+          edad: row.edad || 'N/D',
+          direccion: row.direccion || '',
+          nombre_tutor: row.nombre_tutor || '',
+          telefono_tutor: row.telefono_tutor || '',
+          historial: [] 
         };
       }
 
-      // Si tiene citas, las agregamos al historial
+      // 2. Agregar cita al historial (Si existe id_cita)
       if (row.id_cita) {
         pacientesMap[row.id_paciente].historial.push({
           id_cita: row.id_cita,
-          fecha: row.fecha,
+          fecha: row.fecha, // Se enviará como ISO string
           hora: row.hora_inicio,
-          asistencia: row.asistencia,
+          asistencia: row.asistencia || 0, // Si es null, enviamos 0
           tratante: row.nombre_tratante,
-          observacion: row.observaciones,
-          servicio_area: row.servicio_area
+          observacion: row.observaciones || '',
+          servicio_area: row.servicio_area,
+          
+          // 🔥 DATOS NUEVOS AGREGADOS 🔥
+          tipo_cita: row.tipo_cita || 'N/A',
+          num_programa: row.num_programa || 1, // Nivel
+          pago: row.pago ? parseFloat(row.pago) : 0.0 // Aseguramos formato moneda
         });
       }
     });
 
-    // 3. Calculamos contadores rápidos para mostrarlos en la tarjeta
+    // 3. Convertir Map a Array y calcular resumen rápido
     const listaFinal = Object.values(pacientesMap).map(p => {
-        // Contamos incidencias
+        // Contamos faltas (1, 2, 3 son tipos de inasistencia)
         p.cant_faltas = p.historial.filter(c => [1,2,3].includes(c.asistencia)).length;
+        // Fecha más reciente (la primera porque ordenamos DESC en SQL)
         p.fecha_ultimo_evento = p.historial.length > 0 ? p.historial[0].fecha : null;
         return p;
     });

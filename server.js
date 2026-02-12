@@ -2349,10 +2349,10 @@ app.post('/crear-programa-asignado', async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA: PACIENTES BAJA/ALTA (+ HISTORIAL DETALLADO) ---
+// --- RUTA CORREGIDA: PACIENTES BAJA/ALTA (Sin f.telefono) ---
 // -----------------------------------------------------------
 app.get("/pacientes-bajas-altas", async (req, res) => {
-  const { tipo } = req.query; // 'BAJA' o 'ALTA'
+  const { tipo } = req.query; 
   const client = await pool.connect();
 
   try {
@@ -2366,19 +2366,18 @@ app.get("/pacientes-bajas-altas", async (req, res) => {
     const sql = `
       SELECT 
         p.*,
-        -- Datos del tutor
+        -- Datos del tutor (Solo pedimos el nombre, ya que telefono dio error)
         f.nombre as nombre_tutor,
-        f.telefono as telefono_tutor,
         
-        -- Datos de la CITA (Todas las columnas importantes)
+        -- Datos de la CITA
         c.id_cita, 
         c.fecha, 
         c.hora_inicio, 
         c.asistencia, 
         c.servicio_area,
-        c.tipo_cita,      -- 'P' (Primera vez), 'A' (Tratamiento/Asignado)
-        c.num_programa,   -- Nivel o Bloque (1, 2, 3...)
-        c.pago,           -- Dinero registrado
+        c.tipo_cita,
+        c.num_programa,
+        c.pago,
         
         per.nombre as nombre_tratante,
         hc.observaciones
@@ -2399,46 +2398,38 @@ app.get("/pacientes-bajas-altas", async (req, res) => {
     const pacientesMap = {};
 
     result.rows.forEach(row => {
-      // 1. Crear paciente si no existe
       if (!pacientesMap[row.id_paciente]) {
         pacientesMap[row.id_paciente] = {
           id_paciente: row.id_paciente,
           nombre: row.nombre,
           servicio: row.servicio,
-          telefono: row.telefono,
+          telefono: row.telefono, // Usamos el teléfono del paciente
           estatus_paciente: row.estatus_paciente,
           edad: row.edad || 'N/D',
           direccion: row.direccion || '',
-          nombre_tutor: row.nombre_tutor || '',
-          telefono_tutor: row.telefono_tutor || '',
+          nombre_tutor: row.nombre_tutor || 'No registrado',
           historial: [] 
         };
       }
 
-      // 2. Agregar cita al historial (Si existe id_cita)
       if (row.id_cita) {
         pacientesMap[row.id_paciente].historial.push({
           id_cita: row.id_cita,
-          fecha: row.fecha, // Se enviará como ISO string
+          fecha: row.fecha,
           hora: row.hora_inicio,
-          asistencia: row.asistencia || 0, // Si es null, enviamos 0
+          asistencia: row.asistencia || 0,
           tratante: row.nombre_tratante,
           observacion: row.observaciones || '',
           servicio_area: row.servicio_area,
-          
-          // 🔥 DATOS NUEVOS AGREGADOS 🔥
           tipo_cita: row.tipo_cita || 'N/A',
-          num_programa: row.num_programa || 1, // Nivel
-          pago: row.pago ? parseFloat(row.pago) : 0.0 // Aseguramos formato moneda
+          num_programa: row.num_programa || 1,
+          pago: row.pago ? parseFloat(row.pago) : 0.0
         });
       }
     });
 
-    // 3. Convertir Map a Array y calcular resumen rápido
     const listaFinal = Object.values(pacientesMap).map(p => {
-        // Contamos faltas (1, 2, 3 son tipos de inasistencia)
         p.cant_faltas = p.historial.filter(c => [1,2,3].includes(c.asistencia)).length;
-        // Fecha más reciente (la primera porque ordenamos DESC en SQL)
         p.fecha_ultimo_evento = p.historial.length > 0 ? p.historial[0].fecha : null;
         return p;
     });

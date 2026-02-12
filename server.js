@@ -2569,7 +2569,7 @@ app.get("/reporte-bajas-altas-excel", async (req, res) => {
   } finally {
     client.release();
   }
-});s
+});
 
 
 // -----------------------------------------------------------

@@ -3782,23 +3782,26 @@ app.get("/personal-por-area", async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// 🕒 RUTA: HISTORIAL DE CITAS (Agrupado por Terapeuta para Flutter)
+// 🕒 RUTA: HISTORIAL DE CITAS (SOLO VISUAL - SIN EXCEL)
 // -----------------------------------------------------------
 app.get("/citas-historial", async (req, res) => {
   const { fecha, especialidad } = req.query;
 
-  // 1. Validación
+  // 1. Validamos que mandes los datos
   if (!fecha || !especialidad) {
     return res.status(400).json({ error: "Faltan parámetros 'fecha' o 'especialidad'." });
   }
 
   const client = await pool.connect();
   try {
-    // 2. Limpieza de acentos para búsqueda flexible (Tu truco JS)
+    // 2. Truco para ignorar acentos (Psicología = Psicologia)
     const espOriginal = especialidad.trim();
+    // Quitamos acentos:
     const espSinAcento = espOriginal.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-    // 3. SQL: Traemos los datos "planos" ordenados por hora
+    console.log(`🔎 Buscando historial para: ${fecha} - ${espOriginal}`);
+
+    // 3. SQL: Traemos las citas
     const sql = `
         SELECT 
             c.id_cita,
@@ -3806,7 +3809,7 @@ app.get("/citas-historial", async (req, res) => {
             TO_CHAR(c.hora_fin, 'HH24:MI') AS hora_fin,
             p.nombre AS nombre_paciente,
             pe.nombre AS nombre_tratante,
-            c.servicio_area, -- La especialidad real de la cita
+            c.servicio_area, 
             c.asistencia,
             c.pago,
             c.estatus
@@ -3814,50 +3817,43 @@ app.get("/citas-historial", async (req, res) => {
         JOIN paciente p ON c.id_paciente = p.id_paciente
         LEFT JOIN personal pe ON c.id_personal = pe.id_personal
         WHERE c.fecha = $1
-        -- Filtro Insensible a acentos:
+        -- Buscamos con o sin acento para asegurar que encuentre todo
         AND (LOWER(c.servicio_area) = LOWER($2) OR LOWER(c.servicio_area) = LOWER($3))
         ORDER BY c.hora_inicio ASC
     `;
 
     const result = await client.query(sql, [fecha, espOriginal, espSinAcento]);
 
-    // 4. AGRUPACIÓN (Crucial para que tu Flutter no falle)
-    // Convertimos la lista plana de SQL en la estructura jerárquica que pide tu Dart
+    // 4. AGRUPACIÓN (Para que se vea bonito en Flutter)
     const grupos = {};
 
     result.rows.forEach(row => {
-        // Si el terapeuta es null (sin asignar), le ponemos un nombre genérico
         const nombreProf = row.nombre_tratante || "POR ASIGNAR";
 
-        // Si no existe el grupo de este terapeuta, lo creamos
         if (!grupos[nombreProf]) {
             grupos[nombreProf] = {
-                nombreProfesional: nombreProf,      // Campo que espera Dart
-                especialidad: row.servicio_area,    // Campo que espera Dart
+                nombreProfesional: nombreProf,
+                especialidad: row.servicio_area,
                 conteoPacientes: 0,
-                pacientes: []                       // Lista interna
+                pacientes: []
             };
         }
 
-        // Agregamos el paciente a su grupo
         grupos[nombreProf].pacientes.push({
             idCita: row.id_cita,
-            nombrePaciente: row.nombre_paciente, // Campo que espera Dart
+            nombrePaciente: row.nombre_paciente,
             horaInicio: row.hora_inicio,
             horaFin: row.hora_fin,
-            asistencia: row.asistencia,          // Para los colores
+            asistencia: row.asistencia, 
             pago: row.pago ? parseFloat(row.pago) : 0,
             estatus: row.estatus
         });
 
-        // Sumamos al contador
         grupos[nombreProf].conteoPacientes++;
     });
 
-    // 5. Convertimos el objeto de grupos en un Array (Lista) para enviar
+    // 5. Enviamos la respuesta limpia
     const respuestaFinal = Object.values(grupos);
-
-    console.log(`✅ Historial enviado: ${respuestaFinal.length} grupos encontrados para ${fecha}`);
     res.status(200).json(respuestaFinal);
 
   } catch (error) {

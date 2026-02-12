@@ -3780,6 +3780,95 @@ app.get("/personal-por-area", async (req, res) => {
     client.release();
   }
 });
+
+// -----------------------------------------------------------
+// 🕒 RUTA: HISTORIAL DE CITAS (Agrupado por Terapeuta para Flutter)
+// -----------------------------------------------------------
+app.get("/citas-historial", async (req, res) => {
+  const { fecha, especialidad } = req.query;
+
+  // 1. Validación
+  if (!fecha || !especialidad) {
+    return res.status(400).json({ error: "Faltan parámetros 'fecha' o 'especialidad'." });
+  }
+
+  const client = await pool.connect();
+  try {
+    // 2. Limpieza de acentos para búsqueda flexible (Tu truco JS)
+    const espOriginal = especialidad.trim();
+    const espSinAcento = espOriginal.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    // 3. SQL: Traemos los datos "planos" ordenados por hora
+    const sql = `
+        SELECT 
+            c.id_cita,
+            TO_CHAR(c.hora_inicio, 'HH24:MI') AS hora_inicio,
+            TO_CHAR(c.hora_fin, 'HH24:MI') AS hora_fin,
+            p.nombre AS nombre_paciente,
+            pe.nombre AS nombre_tratante,
+            c.servicio_area, -- La especialidad real de la cita
+            c.asistencia,
+            c.pago,
+            c.estatus
+        FROM citas c
+        JOIN paciente p ON c.id_paciente = p.id_paciente
+        LEFT JOIN personal pe ON c.id_personal = pe.id_personal
+        WHERE c.fecha = $1
+        -- Filtro Insensible a acentos:
+        AND (LOWER(c.servicio_area) = LOWER($2) OR LOWER(c.servicio_area) = LOWER($3))
+        ORDER BY c.hora_inicio ASC
+    `;
+
+    const result = await client.query(sql, [fecha, espOriginal, espSinAcento]);
+
+    // 4. AGRUPACIÓN (Crucial para que tu Flutter no falle)
+    // Convertimos la lista plana de SQL en la estructura jerárquica que pide tu Dart
+    const grupos = {};
+
+    result.rows.forEach(row => {
+        // Si el terapeuta es null (sin asignar), le ponemos un nombre genérico
+        const nombreProf = row.nombre_tratante || "POR ASIGNAR";
+
+        // Si no existe el grupo de este terapeuta, lo creamos
+        if (!grupos[nombreProf]) {
+            grupos[nombreProf] = {
+                nombreProfesional: nombreProf,      // Campo que espera Dart
+                especialidad: row.servicio_area,    // Campo que espera Dart
+                conteoPacientes: 0,
+                pacientes: []                       // Lista interna
+            };
+        }
+
+        // Agregamos el paciente a su grupo
+        grupos[nombreProf].pacientes.push({
+            idCita: row.id_cita,
+            nombrePaciente: row.nombre_paciente, // Campo que espera Dart
+            horaInicio: row.hora_inicio,
+            horaFin: row.hora_fin,
+            asistencia: row.asistencia,          // Para los colores
+            pago: row.pago ? parseFloat(row.pago) : 0,
+            estatus: row.estatus
+        });
+
+        // Sumamos al contador
+        grupos[nombreProf].conteoPacientes++;
+    });
+
+    // 5. Convertimos el objeto de grupos en un Array (Lista) para enviar
+    const respuestaFinal = Object.values(grupos);
+
+    console.log(`✅ Historial enviado: ${respuestaFinal.length} grupos encontrados para ${fecha}`);
+    res.status(200).json(respuestaFinal);
+
+  } catch (error) {
+    console.error("🔥 Error en /citas-historial:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  } finally {
+    client.release();
+  }
+});
+
+
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)
 // ---------------------------

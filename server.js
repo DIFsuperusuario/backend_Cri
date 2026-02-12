@@ -2349,7 +2349,7 @@ app.post('/crear-programa-asignado', async (req, res) => {
 });
 
 // -----------------------------------------------------------
-// --- RUTA CORREGIDA: PACIENTES BAJA/ALTA (+ REF MEDICA) ---
+// --- RUTA CORREGIDA: PACIENTES BAJA/ALTA (+ MOTIVO ESTUDIO) ---
 // -----------------------------------------------------------
 app.get("/pacientes-bajas-altas", async (req, res) => {
   const { tipo } = req.query; 
@@ -2400,9 +2400,10 @@ app.get("/pacientes-bajas-altas", async (req, res) => {
           edad: row.edad || 'N/D',
           direccion: row.direccion || '',
           nombre_tutor: row.nombre_tutor || 'No registrado',
+          ref_medica: row.ref_medica || 'Ninguna',
           
-          // 🔥 AQUÍ ESTÁ LO NUEVO: AGREGAMOS LA REFERENCIA
-          ref_medica: row.ref_medica || 'Ninguna', 
+          // 🔥 AGREGADO: MOTIVO DE ESTUDIO
+          motivo_estudio: row.motivo_estudio || 'Sin motivo registrado', 
 
           historial: [] 
         };

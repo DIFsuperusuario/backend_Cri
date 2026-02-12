@@ -2443,7 +2443,7 @@ app.get("/pacientes-bajas-altas", async (req, res) => {
 
 
 // -----------------------------------------------------------
-// --- RUTA: DESCARGAR EXCEL BAJAS/ALTAS (CORREGIDO) ---
+// --- RUTA: REPORTES EXCEL PROFESIONALES (BAJAS/ALTAS) ---
 // -----------------------------------------------------------
 app.get("/reporte-bajas-altas-excel", async (req, res) => {
   const { tipo } = req.query; // 'BAJA' o 'ALTA'
@@ -2451,30 +2451,34 @@ app.get("/reporte-bajas-altas-excel", async (req, res) => {
 
   try {
     let filtroEstatus = "";
-    let colorTab = "";
+    let tituloReporte = "";
+    let colorHeader = "";
+    let nombreArchivo = "";
 
     if (tipo === 'BAJA') {
       filtroEstatus = "p.estatus_paciente = 'Baja'";
-      colorTab = "FF0000"; // Rojo
+      tituloReporte = "REPORTE OFICIAL DE BAJAS";
+      colorHeader = "990000"; // Rojo Oscuro / Vino
+      nombreArchivo = "Reporte_Bajas";
     } else {
       filtroEstatus = "p.estatus_paciente IN ('Alta', 'Finalizado')";
-      colorTab = "008000"; // Verde
+      tituloReporte = "REPORTE OFICIAL DE ALTAS";
+      colorHeader = "2E7D32"; // Verde Bosque
+      nombreArchivo = "Reporte_Altas";
     }
 
-    // SQL CORREGIDO (Sin f.telefono)
+    // SQL (Sin f.telefono, ordenado por tratante)
     const sql = `
       SELECT 
-        p.*,
+        p.nombre, p.edad, p.servicio, p.telefono, 
+        p.ref_medica, p.motivo_estudio,
         f.nombre as nombre_tutor,
-        -- Quitamos f.telefono porque no existe en tu BD
-        
-        -- Datos de la ÚLTIMA CITA para definir al tratante principal
         per.nombre as nombre_tratante,
         c.fecha as fecha_cita,
         c.asistencia
       FROM paciente p
       LEFT JOIN familiar f ON p.id_paciente = f.id_paciente
-      -- Join estratégico para sacar el último tratante
+      -- Subquery para última cita y tratante
       LEFT JOIN (
           SELECT DISTINCT ON (id_paciente) id_paciente, id_personal, fecha, asistencia 
           FROM citas ORDER BY id_paciente, fecha DESC
@@ -2488,77 +2492,134 @@ app.get("/reporte-bajas-altas-excel", async (req, res) => {
 
     const result = await client.query(sql);
 
-    // --- CREACIÓN DEL EXCEL ---
+    // --- INICIO DISEÑO EXCEL ---
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Pacientes', {
-      properties: { tabColor: { argb: colorTab } }
+    const worksheet = workbook.addWorksheet('Reporte', {
+      views: [{ showGridLines: false }] // Fondo blanco limpio
     });
 
-    // 1. Definir Columnas
+    // 1. TÍTULO DEL REPORTE (Filas 1 y 2)
+    worksheet.mergeCells('B2:J2');
+    const titleCell = worksheet.getCell('B2');
+    titleCell.value = tituloReporte;
+    titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: colorHeader } };
+    titleCell.alignment = { horizontal: 'center' };
+
+    // Subtítulo con Fecha
+    worksheet.mergeCells('B3:J3');
+    const dateCell = worksheet.getCell('B3');
+    dateCell.value = `Generado el: ${new Date().toLocaleDateString('es-MX')}  |  Total Pacientes: ${result.rowCount}`;
+    dateCell.font = { name: 'Arial', size: 10, italic: true, color: { argb: '555555' } };
+    dateCell.alignment = { horizontal: 'center' };
+
+    // 2. CONFIGURACIÓN DE COLUMNAS (Anchos fijos para que se vea bien)
+    // Dejamos la columna A vacía como margen izquierdo estético
+    worksheet.getColumn(1).width = 2; // Margen A
+    
+    // Mapeo de columnas B en adelante
     worksheet.columns = [
-      { header: 'TRATANTE RESPONSABLE', key: 'tratante', width: 25 },
-      { header: 'PACIENTE', key: 'paciente', width: 30 },
-      { header: 'EDAD', key: 'edad', width: 8 },
-      { header: 'SERVICIO', key: 'servicio', width: 15 },
-      { header: 'TUTOR', key: 'tutor', width: 25 },
-      { header: 'TELÉFONO', key: 'telefono', width: 15 },
-      { header: 'REF. MÉDICA', key: 'ref', width: 20 },
-      { header: 'MOTIVO ESTUDIO', key: 'motivo', width: 25 },
-      { header: 'ÚLTIMA VISITA', key: 'fecha', width: 15 },
+      { key: 'margin', width: 2 }, // A
+      { key: 'tratante', width: 25 }, // B
+      { key: 'paciente', width: 35 }, // C
+      { key: 'edad', width: 8 },      // D
+      { key: 'servicio', width: 18 }, // E
+      { key: 'telefono', width: 15 }, // F
+      { key: 'tutor', width: 25 },    // G
+      { key: 'ref', width: 25 },      // H
+      { key: 'motivo', width: 35 },   // I
+      { key: 'fecha', width: 15 },    // J
     ];
 
-    // 2. Estilizar Cabecera
-    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFF' }, size: 12 };
-    worksheet.getRow(1).fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: tipo === 'BAJA' ? 'B71C1C' : '2E7D32' } 
-    };
-    worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+    // 3. CABECERA DE TABLA (Fila 5)
+    const headerRow = worksheet.getRow(5);
+    headerRow.values = [
+      '', // A
+      'TRATANTE RESPONSABLE', // B
+      'NOMBRE DEL PACIENTE', // C
+      'EDAD', // D
+      'ESPECIALIDAD', // E
+      'TELÉFONO', // F
+      'TUTOR / RESP.', // G
+      'REFERENCIA MÉDICA', // H
+      'MOTIVO ESTUDIO', // I
+      'ÚLTIMA VISITA' // J
+    ];
 
-    // 3. Llenar filas
-    let currentTratante = "";
+    // Estilo de Cabecera
+    headerRow.eachCell((cell, colNumber) => {
+      if (colNumber > 1) { // Ignorar margen A
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: colorHeader }
+        };
+        cell.font = { name: 'Arial', color: { argb: 'FFFFFF' }, bold: true, size: 10 };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.border = {
+          top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' }
+        };
+      }
+    });
+    headerRow.height = 25; // Cabecera más alta
+
+    // 4. LLENADO DE DATOS
+    let currentRowIdx = 6;
     
     result.rows.forEach((row) => {
+      const fechaVisita = row.fecha_cita ? new Date(row.fecha_cita).toLocaleDateString('es-MX') : "S/F";
       const tratante = row.nombre_tratante || "SIN ASIGNAR";
-      
-      // Formateo de fecha seguro
-      let fecha = "S/F";
-      if (row.fecha_cita) {
-          const d = new Date(row.fecha_cita);
-          fecha = d.toLocaleDateString('es-MX');
-      }
 
-      // Insertamos fila
-      const newRow = worksheet.addRow({
-        tratante: tratante,
-        paciente: row.nombre,
-        edad: row.edad || '-',
-        servicio: row.servicio,
-        tutor: row.nombre_tutor || '-',
-        telefono: row.telefono || '-', // Solo usamos el del paciente
-        ref: row.ref_medica || '-',
-        motivo: row.motivo_estudio || '-',
-        fecha: fecha
+      const newRow = worksheet.getRow(currentRowIdx);
+      newRow.values = [
+        '', // A
+        tratante,
+        row.nombre,
+        row.edad || '-',
+        row.servicio,
+        row.telefono || '-',
+        row.nombre_tutor || '-',
+        row.ref_medica || '-',
+        row.motivo_estudio || '-',
+        fechaVisita
+      ];
+
+      // Estilo por celda
+      newRow.eachCell((cell, colNumber) => {
+        if (colNumber > 1) {
+          cell.font = { name: 'Arial', size: 10 };
+          cell.border = {
+            top: { style: 'dotted', color: { argb: 'CCCCCC' } },
+            left: { style: 'thin', color: { argb: 'CCCCCC' } },
+            bottom: { style: 'dotted', color: { argb: 'CCCCCC' } },
+            right: { style: 'thin', color: { argb: 'CCCCCC' } }
+          };
+          
+          // Alineación inteligente
+          if (colNumber === 4 || colNumber === 10) { // Edad y Fecha centradas
+             cell.alignment = { vertical: 'middle', horizontal: 'center' };
+          } else {
+             cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true }; // Texto largo con wrap
+          }
+        }
       });
 
-      // 4. Formato visual
-      if (tratante !== currentTratante) {
-        newRow.getCell('tratante').font = { bold: true };
-        currentTratante = tratante;
-      } else {
-        newRow.getCell('tratante').font = { color: { argb: 'AAAAAA' } };
-      }
-      
-      newRow.eachCell((cell) => {
-        cell.border = { bottom: { style: 'thin', color: { argb: 'DDDDDD' } } };
-        cell.alignment = { vertical: 'middle', wrapText: true };
-      });
+      // Resaltar al Tratante (Negrita y color suave)
+      const cellTratante = newRow.getCell(2);
+      cellTratante.font = { bold: true, color: { argb: '333333' } };
+
+      currentRowIdx++;
     });
 
-    // 5. Enviar archivo
+    // 5. ACTIVAR FILTROS DE EXCEL
+    // Esto permite al usuario filtrar por columna directamente en el archivo
+    worksheet.autoFilter = {
+      from: { row: 5, column: 2 },
+      to: { row: currentRowIdx - 1, column: 10 }
+    };
+
+    // 6. ENVIAR ARCHIVO
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=Reporte_${tipo}_${Date.now()}.xlsx`);
+    res.setHeader('Content-Disposition', `attachment; filename=${nombreArchivo}_${Date.now()}.xlsx`);
 
     await workbook.xlsx.write(res);
     res.end();

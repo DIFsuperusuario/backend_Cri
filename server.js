@@ -4066,6 +4066,80 @@ app.get("/citas-historial", async (req, res) => {
   }
 });
 
+// -----------------------------------------------------------
+// --- RUTA: MIS PACIENTES ACTIVOS (FILTRADO POR TRATANTE) ---
+// -----------------------------------------------------------
+app.get("/mis-pacientes-activos", async (req, res) => {
+  const { id_personal } = req.query; // Recibimos el ID del tratante
+  
+  if (!id_personal) {
+    return res.status(400).json({ error: "Falta id_personal" });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    const sql = `
+      SELECT DISTINCT ON (p.id_paciente)
+        p.id_paciente,
+        p.nombre as nombre_paciente,
+        p.num_programa_actual,
+        p.telefono,
+        p.fecha_registro,
+        p.domicilio,
+        
+        -- Datos de la cita
+        c.fecha,
+        c.hora_inicio,
+        c.asistencia,
+        
+        -- Datos del Personal (Para confirmar visualmente)
+        per.nombre as nombre_terapeuta,
+        COALESCE(per.funcion, 'CONSULTA EXTERNA') AS area_terapeuta
+
+      FROM citas c
+      INNER JOIN paciente p ON c.id_paciente = p.id_paciente
+      LEFT JOIN personal per ON TRIM(CAST(c.id_personal AS VARCHAR)) = TRIM(CAST(per.id_personal AS VARCHAR))
+      
+      WHERE 
+        -- 1. SOLO ACTIVOS (Tu regla de oro)
+        TRIM(p.estatus_paciente) = 'Activo'
+        
+        -- 2. SOLO DE ESTE TRATANTE (El candado de seguridad)
+        AND c.id_personal = $1
+
+        -- 3. NIVEL BLINDADO (Igual que en Admin)
+        AND (
+            TRIM(CAST(c.num_programa AS VARCHAR)) = TRIM(CAST(p.num_programa_actual AS VARCHAR))
+            OR c.num_programa IS NULL
+        )
+
+      -- Ordenamos para que el DISTINCT agarre la cita más relevante
+      ORDER BY p.id_paciente, c.fecha DESC;
+    `;
+    
+    const result = await client.query(sql, [id_personal]);
+    
+    // Mapeamos para enviar un JSON limpio al Frontend
+    const lista = result.rows.map(row => ({
+      id_paciente: row.id_paciente,
+      nombre: row.nombre_paciente,
+      servicio: row.area_terapeuta, // Usamos el área del médico como servicio
+      nivel: row.num_programa_actual || 1,
+      telefono: row.telefono,
+      fecha_ultima_cita: row.fecha, // Para el semáforo visual
+      asistencia_ultima: row.asistencia
+    }));
+
+    res.json(lista);
+
+  } catch (error) {
+    console.error("🔥 Error en /mis-pacientes-activos:", error);
+    res.status(500).json([]);
+  } finally {
+    client.release();
+  }
+});
 
 ///////////////////////////////////////////
 // INICIO DEL SERVIDOR (Correcto)

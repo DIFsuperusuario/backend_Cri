@@ -664,7 +664,7 @@ app.post("/personal2", async (req, res) => {
         // Si quieres que sea dinámico, tendrías que pedir la hora en Flutter.
         const sqlHorario = `
           INSERT INTO horarios_personal (id_personal, dia_semana, hora_inicio_laboral, hora_fin_laboral)
-          VALUES ($1, $2, '08:00:00', '15:00:00');
+          VALUES ($1, $2, '08:00:00', '17:00:00');
         `;
         await client.query(sqlHorario, [nuevoId, diaNumero]);
       }

@@ -1700,7 +1700,7 @@ app.get("/programa-paciente", async (req, res) => {
 // --- RUTA MAESTRA: COBRO + ASISTENCIA + TIPO + NOTA ---
 // -----------------------------------------------------------
 app.patch('/actualizar-asistencia', async (req, res) => {
-  const { id_cita, asistencia, monto_pago, tipo_paciente, observaciones } = req.body;
+  const { id_cita, asistencia, monto_pago, tipo_paciente, observaciones, folio } = req.body;
 
   if (!id_cita || !asistencia) {
     return res.status(400).json({ error: "Faltan datos obligatorios" });
@@ -1718,6 +1718,7 @@ app.patch('/actualizar-asistencia', async (req, res) => {
       SET 
         asistencia = $1,
         pago = $2,
+        folio = $3,
         
         -- 👇👇👇 AQUÍ ESTÁ LA LÓGICA QUE FALTABA 👇👇👇
         estatus = CASE 
@@ -1728,14 +1729,15 @@ app.patch('/actualizar-asistencia', async (req, res) => {
             ELSE 'Finalizada'
         END
 
-      WHERE id_cita = $3
+      WHERE id_cita = $4
       RETURNING id_paciente; 
     `;
     
     const montoFinal = monto_pago || 0;
+    const folioFinal = folio || null;
     
     // Ejecutamos el query corregido
-    const resCita = await client.query(sqlCita, [asistencia, montoFinal, id_cita]);
+    const resCita = await client.query(sqlCita, [asistencia, montoFinal, folioFinal, id_cita]);
 
     if (resCita.rowCount === 0) {
       throw new Error("No se encontró la cita");

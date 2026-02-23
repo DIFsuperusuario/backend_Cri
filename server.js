@@ -2156,7 +2156,8 @@ app.post('/registrar-sesion', async (req, res) => {
     tipo_terapia, 
     estatus_asistencia,
     monto_pago,    
-    tipo_paciente  
+    tipo_paciente,
+    folio  
   } = req.body;
 
   if (!id_cita || !id_paciente || !estatus_asistencia) {
@@ -2182,22 +2183,21 @@ app.post('/registrar-sesion', async (req, res) => {
 
     // 3. ACTUALIZAR CITA
     const pagoFinal = monto_pago || 0;
+    const folioFinal = folio || null;
 
     const queryUpdateCita = `
       UPDATE citas 
       SET 
         asistencia = $1,     
         estatus = 'Finalizada',
-        pago = $2,           -- 💰 Guardamos el dinero
-        
-        -- Quitamos check_out porque no tienes la columna
-        
+        pago = $2,
+        folio = $3,           
         tipo_cita = CASE WHEN tipo_cita = 'P' THEN 'V' ELSE tipo_cita END
         
-      WHERE id_cita = $3
+      WHERE id_cita = $4
     `;
 
-    await pool.query(queryUpdateCita, [estatus_asistencia, pagoFinal, id_cita]);
+    await pool.query(queryUpdateCita, [estatus_asistencia, pagoFinal, folioFinal, id_cita]);
 
     await pool.query('COMMIT');
     res.status(200).json({ message: "Sesión y pago registrados correctamente" });

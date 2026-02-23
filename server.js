@@ -3883,8 +3883,8 @@ app.post("/gestion/guardar-horario-bloque", async (req, res) => {
 // --- RUTA FINAL: EDICIÓN HISTORIAL COMPLETA (DINERO + ESTATUS + NOTA) ---
 // -----------------------------------------------------------
 app.patch("/editar-cita-historial", async (req, res) => {
-  // 1. RECIBIMOS EL PAGO TAMBIÉN
-  const { id_cita, asistencia, observacion, pago } = req.body;
+  // 1. RECIBIMOS EL PAGO Y EL FOLIO TAMBIÉN
+  const { id_cita, asistencia, observacion, pago, folio } = req.body;
   
   const client = await pool.connect();
   
@@ -3893,6 +3893,7 @@ app.patch("/editar-cita-historial", async (req, res) => {
 
     // 2. Preparamos el monto (si viene nulo, ponemos 0)
     const montoFinal = pago || 0;
+    const folioFinal = folio || null; // <--- PREPARAMOS EL FOLIO
 
     // 3. ACTUALIZAMOS CITA: Asistencia, PAGO y Estatus Automático
     const sqlCita = `
@@ -3900,6 +3901,7 @@ app.patch("/editar-cita-historial", async (req, res) => {
       SET 
         asistencia = $1,
         pago = $2, -- <--- 💰 AQUÍ GUARDAMOS EL DINERO QUE FALTABA
+        folio = $3, -- <--- 📄 AQUÍ GUARDAMOS EL FOLIO
         
         estatus = CASE 
             -- Regla 1: Si es Primera Vez (P) y Única (1 de 1) -> 'Realizada'
@@ -3908,11 +3910,11 @@ app.patch("/editar-cita-historial", async (req, res) => {
             -- Regla 2: Tratamientos (A) o Bloques -> 'Finalizada'
             ELSE 'Finalizada'
         END
-      WHERE id_cita = $3
+      WHERE id_cita = $4
     `;
     
-    // OJO: Enviamos [asistencia, montoFinal, id_cita]
-    await client.query(sqlCita, [asistencia, montoFinal, id_cita]);
+    // OJO: Enviamos los parámetros actualizados
+    await client.query(sqlCita, [asistencia, montoFinal, folioFinal, id_cita]);
 
     // 4. HISTORIAL: Actualizar o Crear comentario (Igual que antes)
     const checkSql = `SELECT id_historial FROM historial_consultas WHERE id_cita = $1`;

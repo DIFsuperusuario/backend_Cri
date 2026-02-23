@@ -907,7 +907,7 @@ app.get("/pacientes-por-finalizar", async (req, res) => {
     const sql = `
       SELECT 
         p.*,
-        c.id_cita, c.fecha, c.hora_inicio, c.asistencia, c.tipo_cita, c.num_programa, c.pago, c.servicio_area,
+        c.id_cita, c.fecha, c.hora_inicio, c.asistencia, c.tipo_cita, c.num_programa, c.pago, c.folio, c.servicio_area,
         per.nombre as nombre_tratante, -- ✅ Aquí SÍ viene de la BD
         hc.observaciones
       FROM citas c
@@ -963,7 +963,8 @@ app.get("/pacientes-por-finalizar", async (req, res) => {
         asistencia: row.asistencia,
         tratante: row.nombre_tratante,
         observacion: row.observaciones,
-        pago: row.pago
+        pago: row.pago,
+        folio: row.folio
       });
     });
 

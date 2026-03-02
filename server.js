@@ -171,7 +171,8 @@ async function queryServiceCountData(client, type, year, month) {
                 'Terapeuta Autismo',
                 'Terapeuta Lenguaje',
                 'Psicologia', 
-                'Médico'
+                'Médico',
+                'terapia acuática'
             )
             -- 4 = Puntual, 5 = Tardía (solo contar pacientes que asistieron)
             AND c.asistencia IN (4, 5) 
@@ -440,7 +441,8 @@ app.get("/reporte-conteo-servicios", async (req, res) => {
             'Terapeuta Autismo',
             'Terapeuta Lenguaje',
             'Psicologia',
-            'Médico'
+            'Médico',
+            'terapia acuática'
        ];
         const conteosBd = conteosBdRows.reduce((map, row) => {
             map[row["Servicio Brindado"]] = parseInt(row["Conteo No. Pacientes"]); 
@@ -3125,7 +3127,8 @@ const query = `
           'Terapeuta Autismo', 
           'Terapeuta Lenguaje', 
           'Terapeuta Fisico', 'Terapeuta Físico',
-          'Médico', 'Medico'
+          'Médico', 'Medico',
+          'terapia acuática', 'terapia acuatica'
       )
       
       GROUP BY p.id_personal, p.nombre, p.funcion, mes_num, mes_nombre, semana_num, c.tipo_cita
